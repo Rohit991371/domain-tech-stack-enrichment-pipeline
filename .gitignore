@@ -1,0 +1,45 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.techstack/
+
+# Editor/OS cruft
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated pipeline artifacts -- reproducible from fixtures/production runs,
+# not source. Keep the fixtures generator (pipeline/mock_source.py) and the
+# fixtures themselves under version control so a reviewer can run the
+# pipeline immediately without regenerating anything; the run outputs below
+# don't need to be tracked.
+data/raw/*.json
+data/snapshots/*.json
+data/change_events/*.json
+data/rejected/*.json
+data/pipeline_state.json
+
+# Keep the fixtures dir itself and its .gitkeep-style presence, but the
+# generated fixture files are reproducible via `python pipeline/mock_source.py`
+data/fixtures/*.json
+
+# NDJSON staging files for land_to_warehouse.py -- reproducible from
+# data/snapshots/ and data/change_events/, not source.
+data/staging/*.ndjson
+
+# Never commit real GCP credentials, even though this repo authenticates via
+# `gcloud auth application-default login` (creds live outside the repo, in
+# ~/.config/gcloud, not here) -- this is a safety net in case a key file
+# ever ends up in the working tree by accident.
+*.env
+.env.*
+*credentials*.json
+*service-account*.json
+*key.json
+
+.egg-info/
+*.egg-info/
+

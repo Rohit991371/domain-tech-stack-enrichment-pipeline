@@ -1,0 +1,51 @@
+# tech-stack-pipeline configuration
+# All thresholds/knobs live here so pipeline/*.py stay logic-only.
+
+gcp:
+    project_id: "Project_id" # bq client uses this for billing
+    bq_location: "US"
+
+# Warehouse landing target -- see docs/design_doc.md section 3 and
+# pipeline/land_to_warehouse.py. This is deliberately a SEPARATE dataset
+# from the HTTP Archive source project/dataset above: `source.*` is data I
+# read (someone else's public dataset), `warehouse.*` is data I own and
+# write. Never point these at the same dataset.
+warehouse:
+    gcs_bucket: "GCS bucket name" # staging landing zone; see 3.3 in design_doc.md
+    # gcs_bucket: " tech_stack_warehouse" # staging landing zone; see 3.3 in design_doc.md
+    gcs_staging_prefix: "staging/tech-stack-pipeline"
+    bq_dataset: "tech_stack_warehouse" # a dataset in the project, not httparchive's
+    table_snapshot_latest: "tech_stack_snapshot_latest"
+    table_snapshot_history: "tech_stack_snapshot"
+    table_change_events: "tech_stack_change_events"
+    staging_table_snapshot: "stg_tech_stack_snapshot"
+    staging_table_change_events: "stg_tech_stack_change_events"
+
+# HTTP Archive source
+source:
+    dataset_prod: "httparchive.crawl.pages"
+    dataset_sample: "httparchive.sample_data.pages_10k"
+    client: "desktop" # desktop-only for v1, see design_doc.md
+    # HTTP Archive crawls are dated the 1st of the month but the crawl itself
+    # doesn't start until CrUX lands (2nd Tuesday) and takes 1-2 weeks to finish.
+    # I never assume "today >= 20th -> data exists". arrival_check.py verifies.
+    min_days_after_month_start_before_checking: 15
+
+# Arrival / validation gates (see docs/design_doc.md for rationale on each number)
+guardrails:
+    min_row_count: 8000 # pages_10k should be ~10k rows; prod uses a scaled value via --min-rows override
+    min_row_count_mock: 400 # local --mock fixtures are deliberately small (~500 origins); see pipeline/mock_source.py
+    min_domain_count: 1000 # after aggregation to registrable domain (production scale)
+    min_domain_count_mock: 200 # local --mock fixtures are deliberately small; see pipeline/mock_source.py
+    max_scan_bytes_production: 300000000000 # 300 GB hard ceiling; extract.py refuses to run above this (dry-run enforced)
+    min_tech_coverage_ratio: 0.5 # >=50% of rows must have >=1 detected technology, else source looks broken
+    max_row_count_drop_pct: 0.30 # if new snapshot has >30% fewer domains than previous month, STOP and alert
+    max_row_count_spike_pct: 3.00 # if new snapshot has >300% more domains than previous month, STOP and alert (possible dupe/join bug)
+
+paths:
+    fixtures_dir: "data/fixtures"
+    raw_dir: "data/raw"
+    snapshots_dir: "data/snapshots"
+    change_events_dir: "data/change_events"
+    rejected_dir: "data/rejected"
+    state_file: "data/pipeline_state.json"

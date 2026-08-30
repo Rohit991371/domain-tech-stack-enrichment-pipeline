@@ -178,7 +178,7 @@ tech-stack-pipeline/
 │   ├── land_to_warehouse.py   # separate step: validated snapshot -> GCS -> BigQuery MERGE
 │   └── mock_source.py         # synthetic fixture generator for local dev/testing
 ├── tests/                     # pytest, 32 tests: the three traps + warehouse-landing orchestration
-├── data/                      # generated at runtime; fixtures/ has a generator, rest is gitignored
+├── data/                      
 ├── docs/
 │   ├── findings.md            # source investigation (har.fyi), done before writing any SQL
 │   ├── schema_draft.md        # exact output schemas for both deliverables

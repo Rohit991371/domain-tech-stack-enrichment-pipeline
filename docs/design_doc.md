@@ -405,13 +405,45 @@ infrastructure change, not a rewrite of `normalize_domain.py`,
 | Diff engine run against a snapshot that never passed validation | Structurally prevented -- `run_pipeline.py` only calls `diff_snapshots()` after `validate_snapshot().passed` is confirmed `True` for the current month, and only against a `previous_crawl_date` snapshot file that exists on disk (which itself could only have been written by a prior, validated run) | N/A -- not reachable in normal operation | If someone manually invokes `diff_snapshots.py` directly against two arbitrary snapshot files (bypassing `run_pipeline.py`), that's on them; the standalone script doesn't re-check validation status, by design, so it stays usable for ad-hoc "what changed between any two snapshots" investigation. |
 
 **Every run, pass or fail, is logged** to `data/pipeline_state.json`
-(append-only, last 200 runs kept) by `run_pipeline.py`. This is the first
-thing to check at 3 AM: what did the last run actually do, at which stage
-did it stop, and what did each stage report. The intent is that a human
-paged for this pipeline should never need to read source code to figure
-out what happened -- the run log plus the stage-specific artifact
-(`data/snapshots/`, `data/rejected/`, or the dry-run error message) should
-be enough.
+(append-only, last 200 runs kept, oldest dropped past that) by
+`run_pipeline.py`. This is the first thing to check at 3 AM: what did the
+last run actually do, at which stage did it stop, and what did each stage
+report -- without needing to have caught the terminal output live or read
+source code to reconstruct it.
+
+Each entry is one JSON object appended to the array, and looks like this:
+
+```json
+{
+  "crawl_date": "2026-08-01",
+  "previous_crawl_date": "2026-07-01",
+  "mock": false,
+  "dry_run": false,
+  "source": "production",
+  "limit_rows": 500,
+  "stages": {
+    "arrival_check": { "arrived": true, "reason": "..." },
+    "extract": { "row_count": 500, "bytes_scanned": "..." },
+    "build_snapshot": { "domain_count": 431 },
+    "validate": { "passed": true, "checks": { "...": "..." } },
+    "diff_snapshots": { "added": 12, "dropped": 5 }
+  },
+  "outcome": "LOADED",
+  "timestamp": "2026-08-27T09:14:02+00:00"
+}
+```
+
+The field that matters most for a fast triage is `outcome`, which is
+always one of a fixed set: `LOADED`, `STOPPED_ARRIVAL_CHECK_FAILED`,
+`STOPPED_VALIDATION_FAILED`, `DRY_RUN_ONLY`, `ERROR_EXTRACT`, or
+`ERROR_BUILD_SNAPSHOT` -- that alone says which guardrail (if any) stopped
+the run, and `stages` has the per-stage detail (e.g. exactly which of the
+six validation checks failed) for anyone who needs to go one level deeper.
+The intent is that a human paged for this pipeline should never need to
+read source code to figure out what happened -- the run log plus the
+stage-specific artifact (`data/snapshots/`, `data/rejected/`, or the
+dry-run error message) should be enough. It's gitignored like the other
+`data/` outputs (§3.4) since it's local run history, not source.
 
 ---
 

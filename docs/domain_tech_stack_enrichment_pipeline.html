@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Domain Tech-Stack Enrichment Pipeline</title>
+  <style>
+    :root {
+      --bg-canvas: #f6f3ee;
+      --bg-slide: #ffffff;
+      --text-main: #141210;
+      --text-muted: #5e5249;
+      --brown-deep: #3b2214;
+      --brown-main: #6e3d1d;
+      --brown-accent: #9a572a;
+      --brown-soft: #f2ebe3;
+      --brown-tint: #faf6f1;
+      --border-color: #d6c7b9;
+      --border-dark: #2c1b10;
+      --card-bg: #ffffff;
+      --danger-brown: #5c1812;
+      --danger-bg: #fae8e6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Calibri', 'Segoe UI', Candara, Optima, sans-serif;
+      background-color: var(--bg-canvas);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    /* Presentation Wrapper */
+    .deck-container {
+      width: 100%;
+      max-width: 1280px;
+      background-color: var(--bg-slide);
+      border-radius: 14px;
+      border: 2px solid var(--border-color);
+      box-shadow: 0 16px 40px rgba(44, 27, 16, 0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 720px;
+      position: relative;
+    }
+
+    /* Top Bar */
+    .deck-header {
+      background-color: var(--brown-deep);
+      color: #ffffff;
+      padding: 14px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 16px;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--brown-main);
+    }
+
+    .deck-header .deck-title-mini {
+      font-weight: 700;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge-firmable {
+      background-color: var(--brown-accent);
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Slide Area */
+    .slide-viewport {
+      flex: 1;
+      padding: 40px 48px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background-color: var(--bg-slide);
+    }
+
+    .slide {
+      display: none;
+      height: 100%;
+      flex-direction: column;
+      animation: fadeIn 0.25s ease-in-out;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Slide Titles & Headers */
+    .slide-heading-block {
+      margin-bottom: 24px;
+      border-bottom: 2px solid var(--brown-soft);
+      padding-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .slide-category {
+      font-size: 16px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--brown-main);
+      letter-spacing: 1.5px;
+      margin-bottom: 4px;
+    }
+
+    .slide-title {
+      font-size: 34px;
+      font-weight: 700;
+      color: var(--brown-deep);
+      line-height: 1.2;
+    }
+
+    .slide-meta-tag {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--brown-soft);
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* Content Layout Grids */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      flex: 1;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      flex: 1;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      flex: 1;
+    }
+
+    /* Content Cards */
+    .content-card {
+      background-color: var(--brown-tint);
+      border: 1.5px solid var(--border-color);
+      border-radius: 10px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 12px;
+    }
+
+    .content-card.dark {
+      background-color: var(--brown-deep);
+      color: #ffffff;
+      border-color: var(--border-dark);
+    }
+
+    .content-card.dark .card-title {
+      color: #ffffff;
+      border-bottom-color: var(--brown-accent);
+    }
+
+    .content-card.dark p, .content-card.dark li {
+      color: #e5ded7;
+    }
+
+    .content-card.highlight {
+      background-color: #ffffff;
+      border: 2px solid var(--brown-main);
+      box-shadow: 0 6px 16px rgba(110, 61, 29, 0.08);
+    }
+
+    .card-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--brown-deep);
+      border-bottom: 1.5px solid var(--border-color);
+      padding-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title .icon {
+      color: var(--brown-main);
+    }
+
+    /* Typography inside content */
+    p, li {
+      font-size: 19px;
+      line-height: 1.45;
+      color: var(--text-main);
+    }
+
+    ul {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    ul li {
+      position: relative;
+      padding-left: 22px;
+    }
+
+    ul li::before {
+      content: "■";
+      position: absolute;
+      left: 0;
+      color: var(--brown-main);
+      font-size: 14px;
+      top: 2px;
+    }
+
+    .bold-lead {
+      font-weight: 700;
+      color: var(--brown-deep);
+    }
+
+    /* Key Metrics and Stats */
+    .metric-box {
+      background: var(--brown-soft);
+      border: 1.5px solid var(--brown-main);
+      border-radius: 8px;
+      padding: 16px 20px;
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 38px;
+      font-weight: 800;
+      color: var(--brown-deep);
+      line-height: 1.1;
+    }
+
+    .metric-label {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--brown-main);
+      text-transform: uppercase;
+      margin-top: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Code Snippets & Schemas */
+    .code-box {
+      background-color: #1a1410;
+      color: #f2ece6;
+      border-radius: 8px;
+      padding: 18px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 16px;
+      line-height: 1.4;
+      border: 1.5px solid #3d2c20;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .code-keyword { color: #d4986a; font-weight: bold; }
+    .code-string { color: #eed5b7; }
+    .code-key { color: #fdfbf7; font-weight: bold; }
+
+    /* Tables */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 18px;
+      background: #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1.5px solid var(--border-color);
+    }
+
+    .data-table th {
+      background-color: var(--brown-deep);
+      color: #ffffff;
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .data-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-main);
+    }
+
+    .data-table tr:nth-child(even) {
+      background-color: var(--brown-tint);
+    }
+
+    .data-table tr:hover {
+      background-color: var(--brown-soft);
+    }
+
+    .tag-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .tag-stop {
+      background: var(--danger-bg);
+      color: var(--danger-brown);
+      border: 1px solid #d99c96;
+    }
+
+    .tag-pass {
+      background: #edf5ed;
+      color: #1e4a1e;
+      border: 1px solid #a8cda8;
+    }
+
+    /* Flow / Architecture Pipeline */
+    .pipeline-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .flow-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .flow-step {
+      flex: 1;
+      background: var(--brown-tint);
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      padding: 14px 12px;
+      text-align: center;
+      position: relative;
+    }
+
+    .flow-step.primary {
+      background: var(--brown-soft);
+      border-color: var(--brown-main);
+    }
+
+    .flow-step.gate {
+      background: var(--brown-deep);
+      color: #ffffff;
+      border-color: var(--border-dark);
+    }
+
+    .flow-step.gate .flow-step-title {
+      color: #ffffff;
+    }
+
+    .flow-step.gate .flow-step-desc {
+      color: #dfd5cb;
+    }
+
+    .flow-step-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--brown-deep);
+      margin-bottom: 4px;
+    }
+
+    .flow-step-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.2;
+    }
+
+    .flow-arrow {
+      font-size: 24px;
+      color: var(--brown-accent);
+      font-weight: 900;
+    }
+
+    .fail-branch-box {
+      background: var(--danger-bg);
+      border: 2px dashed var(--danger-brown);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: var(--danger-brown);
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    /* Bottom Controller */
+    .deck-footer {
+      background-color: var(--brown-tint);
+      border-top: 1.5px solid var(--border-color);
+      padding: 14px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .slide-counter {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--brown-deep);
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+    }
+
+    .nav-btn {
+      background-color: var(--brown-deep);
+      color: #ffffff;
+      border: 1px solid var(--border-dark);
+      padding: 10px 22px;
+      border-radius: 6px;
+      font-size: 17px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: 'Calibri', sans-serif;
+      transition: background 0.15s ease;
+    }
+
+    .nav-btn:hover {
+      background-color: var(--brown-main);
+    }
+
+    .nav-btn:disabled {
+      background-color: #a89f97;
+      border-color: #8f867e;
+      cursor: not-allowed;
+    }
+
+    /* Title Slide Specifics */
+    .title-slide {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      height: 100%;
+      padding: 20px 40px;
+      gap: 20px;
+    }
+
+    .hero-tag {
+      background-color: var(--brown-soft);
+      color: var(--brown-main);
+      border: 2px solid var(--brown-main);
+      padding: 6px 18px;
+      font-size: 18px;
+      font-weight: 800;
+      border-radius: 30px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+
+    .hero-title {
+      font-size: 50px;
+      font-weight: 800;
+      color: var(--brown-deep);
+      line-height: 1.15;
+      max-width: 950px;
+    }
+
+    .hero-subtitle {
+      font-size: 24px;
+      color: var(--text-muted);
+      max-width: 820px;
+      line-height: 1.4;
+    }
+
+    .hero-author-box {
+      margin-top: 15px;
+      background: var(--brown-tint);
+      border: 1.5px solid var(--border-color);
+      border-radius: 10px;
+      padding: 16px 36px;
+      display: flex;
+      gap: 36px;
+    }
+
+    .hero-author-item {
+      text-align: left;
+    }
+
+    .hero-author-item .label {
+      font-size: 14px;
+      text-transform: uppercase;
+      color: var(--brown-main);
+      font-weight: 700;
+    }
+
+    .hero-author-item .val {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--brown-deep);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="deck-container">
+    <!-- Header -->
+    <div class="deck-header">
+      <div class="deck-title-mini">
+        <span class="badge-firmable">Firmable</span>
+        <span>Domain Tech-Stack Enrichment Pipeline</span>
+      </div>
+      <div>Technical Review Presentation</div>
+    </div>
+
+    <!-- Viewport -->
+    <div class="slide-viewport">
+
+      <!-- Slide 1: Title -->
+      <div class="slide active" id="slide-1">
+        <div class="title-slide">
+          <div class="hero-tag">Firmable Take-Home Project</div>
+          <div class="hero-title">Domain Tech-Stack Enrichment Pipeline</div>
+          <div class="hero-subtitle">
+            Transforming 12–16M HTTP Archive raw crawl events into high-fidelity, join-ready monthly domain tech profiles and change feeds.
+          </div>
+          <div class="hero-author-box">
+            <div class="hero-author-item">
+              <div class="label">Candidate / Author</div>
+              <div class="val">Rohit</div>
+            </div>
+            <div class="hero-author-item">
+              <div class="label">Architecture Focus</div>
+              <div class="val">BigQuery • Python • PSL • Guardrails</div>
+            </div>
+            <div class="hero-author-item">
+              <div class="label">Assignment Status</div>
+              <div class="val">Production-Gated & Verified</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 2: The Business Problem -->
+      <div class="slide" id="slide-2">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Business Problem & Market Context</div>
+            <div class="slide-title">Actionable Tech Intelligence from Web-Scale Crawls</div>
+          </div>
+          <div class="slide-meta-tag">Slide 02 / 12</div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card highlight">
+            <div class="card-title">Commercial Value for Sales Teams</div>
+            <ul>
+              <li><span class="bold-lead">Targeted Outbound:</span> Instantly query <i>"Who runs Shopify?"</i> or <i>"Who adopted HubSpot this quarter?"</i></li>
+              <li><span class="bold-lead">Platform Displacement:</span> Detect domains overdue for cloud, CRM, or e-commerce migration.</li>
+              <li><span class="bold-lead">High-Confidence Signals:</span> Power modern B2B go-to-market motions with validated tech deployments.</li>
+            </ul>
+          </div>
+          <div class="content-card">
+            <div class="card-title">The Engineering Mission</div>
+            <ul>
+              <li><span class="bold-lead">HTTP Archive Scale:</span> Raw datasets crawl ~12M to 16M origins every month.</li>
+              <li><span class="bold-lead">Noisy Firehose:</span> Raw data is origin-grain, multi-TB in size, and contains nested JSON objects.</li>
+              <li><span class="bold-lead">Our Core Deliverable:</span> Clean, PSL-normalized, join-ready tabular datasets ready for enterprise warehouse joins.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 3: Two Outputs -->
+      <div class="slide" id="slide-3">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Deliverables & Schema</div>
+            <div class="slide-title">Two Distinct Data Products for GTM Needs</div>
+          </div>
+          <div class="slide-meta-tag">Slide 03 / 12</div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card">
+            <div class="card-title">1. Monthly Snapshot Table</div>
+            <p><span class="bold-lead">Grain:</span> Exactly 1 row per domain per month (`domain -> [technologies]`)</p>
+            <div class="code-box"><span class="code-key">{</span>
+  <span class="code-key">"domain"</span>: <span class="code-string">"example.com"</span>,
+  <span class="code-key">"crawl_month"</span>: <span class="code-string">"2024-08-01"</span>,
+  <span class="code-key">"technologies"</span>: [
+    <span class="code-string">"Shopify"</span>,
+    <span class="code-string">"Google Analytics"</span>,
+    <span class="code-string">"Klaviyo"</span>
+  ],
+  <span class="code-key">"technology_count"</span>: <span class="code-keyword">3</span>
+<span class="code-key">}</span></div>
+            <p>Used for firmographic filtering and segment sizing.</p>
+          </div>
+          <div class="content-card highlight">
+            <div class="card-title">2. Monthly Change-Events Feed</div>
+            <p><span class="bold-lead">Grain:</span> 1 row per transition (`domain -> added / dropped`)</p>
+            <div class="code-box"><span class="code-key">{</span>
+  <span class="code-key">"domain"</span>: <span class="code-string">"example.com"</span>,
+  <span class="code-key">"transition_month"</span>: <span class="code-string">"2024-09-01"</span>,
+  <span class="code-key">"added"</span>: [<span class="code-string">"HubSpot"</span>],
+  <span class="code-key">"dropped"</span>: [<span class="code-string">"Marketo"</span>],
+  <span class="code-key">"retained_count"</span>: <span class="code-keyword">2</span>
+<span class="code-key">}</span></div>
+            <p>Direct buyer-intent triggers: triggers sales alerts when a competitor is dropped.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 4: The Three Traps -->
+      <div class="slide" id="slide-4">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">System Design Traps</div>
+            <div class="slide-title">The Three Production Traps & Solutions</div>
+          </div>
+          <div class="slide-meta-tag">Slide 04 / 12</div>
+        </div>
+        <div class="grid-3">
+          <div class="content-card">
+            <div class="card-title">1. Timing Trap</div>
+            <p><span class="bold-lead">Trap:</span> HTTP Archive tables are dated the 1st of the month but don't land until the 3rd week.</p>
+            <div class="metric-box">
+              <div class="metric-label">Engineering Solution</div>
+              <p style="font-size: 17px; margin-top:6px;"><span class="bold-lead">`arrival_check.py`</span> executes a live row-count probe before unblocking extraction.</p>
+            </div>
+          </div>
+          <div class="content-card">
+            <div class="card-title">2. Grain Trap</div>
+            <p><span class="bold-lead">Trap:</span> HTTP Archive stores 1 row/origin (`subdomain.site.com`), but downstream needs 1 row/domain.</p>
+            <div class="metric-box">
+              <div class="metric-label">Engineering Solution</div>
+              <p style="font-size: 17px; margin-top:6px;"><span class="bold-lead">PSL-aware normalize</span> + union aggregation across all origins for that domain.</p>
+            </div>
+          </div>
+          <div class="content-card">
+            <div class="card-title">3. Cost Trap</div>
+            <p><span class="bold-lead">Trap:</span> Raw tables are 100+ TB. Two unpruned columns alone scan multiple Terabytes.</p>
+            <div class="metric-box">
+              <div class="metric-label">Engineering Solution</div>
+              <p style="font-size: 17px; margin-top:6px;"><span class="bold-lead">Mandatory Dry-Run Gate</span>, strict column allowlist, and `maximum_bytes_billed` ceiling.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 5: Architecture Diagram -->
+      <div class="slide" id="slide-5">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">End-to-End Pipeline</div>
+            <div class="slide-title">Deterministic, Fail-Safe Architecture</div>
+          </div>
+          <div class="slide-meta-tag">Slide 05 / 12</div>
+        </div>
+        <div class="pipeline-flow">
+          <div class="flow-row">
+            <div class="flow-step">
+              <div class="flow-step-title">1. Arrival Check</div>
+              <div class="flow-step-desc">`arrival_check.py` live metadata probe</div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step gate">
+              <div class="flow-step-title">2. Dry-Run Gate</div>
+              <div class="flow-step-desc">Validate byte scan & budget</div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step primary">
+              <div class="flow-step-title">3. BigQuery Extract</div>
+              <div class="flow-step-desc">Column allowlist + cluster order</div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <div class="flow-step-title">4. PSL Rollup</div>
+              <div class="flow-step-desc">Normalize origins & Union techs</div>
+            </div>
+          </div>
+
+          <div class="flow-row">
+            <div class="flow-step gate">
+              <div class="flow-step-title">5. 6-Tier Quality Gate</div>
+              <div class="flow-step-desc">Row volume, nulls & anomaly checks</div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step primary">
+              <div class="flow-step-title">6. Staging & Merge</div>
+              <div class="flow-step-desc">Idempotent warehouse landing</div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <div class="flow-step-title">7. Diff Engine</div>
+              <div class="flow-step-desc">Generate Added / Dropped feeds</div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step primary">
+              <div class="flow-step-title">8. Downstream Join</div>
+              <div class="flow-step-desc">GTM & Sales Enrichment</div>
+            </div>
+          </div>
+
+          <div class="fail-branch-box">
+            <span>⛔ FAIL-STOPS-EVERYTHING BRANCH:</span>
+            <span>Any validation failure halts staging immediately. Prior warehouse state remains 100% untouched.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 6: The Grain-Trap Decision -->
+      <div class="slide" id="slide-6">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Data Modeling & Normalization</div>
+            <div class="slide-title">The Grain-Trap Decision: Union Over Selection</div>
+          </div>
+          <div class="slide-meta-tag">Slide 06 / 12</div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card">
+            <div class="card-title">The Real-World Subdomain Problem</div>
+            <div style="background:#fff; border:1px solid var(--border-color); padding:12px; border-radius:6px; margin: 4px 0;">
+              <p><span class="bold-lead">Origin A:</span> `example.com` → [WordPress, Cloudflare]</p>
+              <p><span class="bold-lead">Origin B:</span> `shop.example.com` → [Shopify, Stripe]</p>
+              <p><span class="bold-lead">Origin C:</span> `blog.example.com` → [Ghost, Disqus]</p>
+            </div>
+            <ul>
+              <li><span class="bold-lead">Naive Approach:</span> Picking only apex or highest-traffic origin drops Shopify and Stripe.</li>
+              <li><span class="bold-lead">Business Impact:</span> Sales rep searching for "Companies on Shopify" misses `example.com` completely.</li>
+            </ul>
+          </div>
+          <div class="content-card highlight">
+            <div class="card-title">Our Rule: PSL-Aware Union Rollup</div>
+            <ul>
+              <li><span class="bold-lead">Public Suffix List (PSL):</span> Correctly groups `co.uk` and `com.au` without mangling root domains.</li>
+              <li><span class="bold-lead">Set Union:</span> All unique technologies detected across all subdomains roll into the parent domain.</li>
+              <li><span class="bold-lead">Explicit Trade-off:</span> We preserve complete feature adoption signals at the expense of origin-level granularity (subdomain attribution).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 7: Cost Discipline -->
+      <div class="slide" id="slide-7">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">FinOps & Engineering Economics</div>
+            <div class="slide-title">Structural Cost Discipline at Scale</div>
+          </div>
+          <div class="slide-meta-tag">Slide 07 / 12</div>
+        </div>
+        <div class="grid-3" style="margin-bottom: 16px;">
+          <div class="metric-box">
+            <div class="metric-value">29.84 GB</div>
+            <div class="metric-label">Per Extraction Query</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-value">59.68 GB</div>
+            <div class="metric-label">Combined / Month</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-value">$0.00 / mo</div>
+            <div class="metric-label">Within 1 TiB Free Tier</div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card">
+            <div class="card-title">Structural Guardrails (Not Habits)</div>
+            <ul>
+              <li><span class="bold-lead">Column Allowlist:</span> Never execute `SELECT *`. Avoid multi-TB JSON dumps.</li>
+              <li><span class="bold-lead">Mandatory Dry-Runs:</span> Every run queries API dry-run for bytes scanned.</li>
+              <li><span class="bold-lead">Hard Bytes Ceiling:</span> `maximum_bytes_billed` set as query parameter.</li>
+              <li><span class="bold-lead">Anti-Pattern Rejected:</span> SQL `LIMIT` is never used as cost control (scans full column).</li>
+            </ul>
+          </div>
+          <div class="content-card">
+            <div class="card-title">Historical Backfill Economics</div>
+            <ul>
+              <li><span class="bold-lead">36-Month Full Backfill:</span> ~$10–$15 one-time BigQuery scan cost.</li>
+              <li><span class="bold-lead">12-Month Recommendation:</span> Recommended on tech relevance grounds (older tech data is stale), not because of query cost.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 8: Validation Gate -->
+      <div class="slide" id="slide-8">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Data Reliability & Integrity</div>
+            <div class="slide-title">Six-Tier Validation Gate: "Silent Failure Impossible"</div>
+          </div>
+          <div class="slide-meta-tag">Slide 08 / 12</div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Check Name</th>
+              <th>Assertion Rule</th>
+              <th>Guards Against</th>
+              <th>Action on Fail</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Row Volume</strong></td>
+              <td>RowCount &ge; 8,000,000 domains</td>
+              <td>Incomplete / corrupt source scrape</td>
+              <td><span class="tag-badge tag-stop">Abort Merge</span></td>
+            </tr>
+            <tr>
+              <td><strong>2. Null Domain</strong></td>
+              <td>Null count == 0 on join-key</td>
+              <td>PSL normalization parse failures</td>
+              <td><span class="tag-badge tag-stop">Abort Merge</span></td>
+            </tr>
+            <tr>
+              <td><strong>3. Schema Match</strong></td>
+              <td>Exact column & data type match</td>
+              <td>Upstream HTTP Archive schema shift</td>
+              <td><span class="tag-badge tag-stop">Abort Merge</span></td>
+            </tr>
+            <tr>
+              <td><strong>4. Tech Density</strong></td>
+              <td>Avg techs/domain between 2.0 and 8.0</td>
+              <td>Extractor parser corruption</td>
+              <td><span class="tag-badge tag-stop">Abort Merge</span></td>
+            </tr>
+            <tr>
+              <td><strong>5. High-Entropy</strong></td>
+              <td>Top tech (e.g. WP) &le; 45% market share</td>
+              <td>Default-value regex blowups</td>
+              <td><span class="tag-badge tag-stop">Abort Merge</span></td>
+            </tr>
+            <tr>
+              <td><strong>6. Diff Drift</strong></td>
+              <td>Monthly churn rate &le; 35% total domains</td>
+              <td>False-positive drop/add catastrophic flip</td>
+              <td><span class="tag-badge tag-stop">Abort Merge</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Slide 9: Warehouse Landing -->
+      <div class="slide" id="slide-9">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Data Warehouse Integration</div>
+            <div class="slide-title">Warehouse Landing & Join-Key Contract</div>
+          </div>
+          <div class="slide-meta-tag">Slide 09 / 12</div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card">
+            <div class="card-title">Warehouse Architecture (Idempotent MERGE)</div>
+            <ul>
+              <li><span class="bold-lead">3 Production Tables:</span> `monthly_snapshots`, `change_events`, `technology_catalog`.</li>
+              <li><span class="bold-lead">2 Staging Tables:</span> Isolated loads; tested before write.</li>
+              <li><span class="bold-lead">Idempotent Operations:</span> Pipeline runs are fully repeatable without duplicate creation.</li>
+            </ul>
+          </div>
+          <div class="content-card highlight">
+            <div class="card-title">The Universal Join-Key Contract</div>
+            <div style="background: var(--brown-deep); color:#fff; padding:16px; border-radius:8px; font-size:19px; line-height:1.4;">
+              <strong>Downstream Join Contract:</strong><br/>
+              "Registrable domain only: PSL-normalized, lowercased, with scheme, path, port, and 'www.' removed."
+            </div>
+            <ul style="margin-top: 10px;">
+              <li><span class="bold-lead">Guarantee:</span> Downstream analytics engineers can join directly on `crm.domain = tech.domain` without ad-hoc string cleanups.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 10: What's Real vs Proven at Small Scale -->
+      <div class="slide" id="slide-10">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Engineering Integrity</div>
+            <div class="slide-title">What is Real vs. Proven at Mechanism Scale</div>
+          </div>
+          <div class="slide-meta-tag">Slide 10 / 12</div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card highlight">
+            <div class="card-title">Proven & Verified in Code (Real)</div>
+            <ul>
+              <li><span class="bold-lead">BigQuery Dry-Runs:</span> Real dry-run API calls against actual HTTP Archive tables.</li>
+              <li><span class="bold-lead">Warehouse Verification:</span> Two consecutive production months landed via `--limit-rows 500` and verified.</li>
+              <li><span class="bold-lead">Pipeline Code:</span> Complete implementation of extraction, normalization, and validation rules.</li>
+            </ul>
+          </div>
+          <div class="content-card">
+            <div class="card-title">To Scale in Full Production</div>
+            <ul>
+              <li><span class="bold-lead">Full Scale Execution:</span> 500 rows/month tested at proof scale vs. full 12–16M domain volume.</li>
+              <li><span class="bold-lead">Threshold Calibration:</span> Quality gate limits calibrated from estimates; need 2–3 months of real historical baseline runs.</li>
+              <li><span class="bold-lead">No Unstated Assumptions:</span> All limits and bounds are fully documented in the design specification.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 11: AI-Native: The Decision Not to Use an LLM -->
+      <div class="slide" id="slide-11">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">AI Strategy & Architecture</div>
+            <div class="slide-title">AI-Native: The Decision Not to Use an LLM in v1</div>
+          </div>
+          <div class="slide-meta-tag">Slide 11 / 12</div>
+        </div>
+        <div class="grid-2">
+          <div class="content-card">
+            <div class="card-title">Why LLMs Were Excluded from v1 Core</div>
+            <ul>
+              <li><span class="bold-lead">Structured Input:</span> Source data is already categorized by Wappalyzer signatures (`technology` + `category`).</li>
+              <li><span class="bold-lead">Strict Determinism:</span> Asking <i>"Does this domain run Shopify?"</i> requires binary precision, not language model hallucinations.</li>
+              <li><span class="bold-lead">Cost Math:</span> LLM inference across 15M records would be 100x the entire data warehouse bill for minimal added value.</li>
+            </ul>
+          </div>
+          <div class="content-card highlight">
+            <div class="card-title">Where LLMs Add Value (v2 Scope)</div>
+            <ul>
+              <li><span class="bold-lead">Migration-Intent Reasoning:</span> Analyzing multi-month signal drift to score enterprise migration probability.</li>
+              <li><span class="bold-lead">Custom Category Clustering:</span> Grouping proprietary tech stacks where no Wappalyzer tag exists.</li>
+              <li><span class="bold-lead">Strict v2 AI Architecture:</span> Will require versioned prompts, evals dataset, and latency tracing.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 12: Closing / Known Gaps -->
+      <div class="slide" id="slide-12">
+        <div class="slide-heading-block">
+          <div>
+            <div class="slide-category">Summary & Next Steps</div>
+            <div class="slide-title">Closing & Production Readiness Roadmap</div>
+          </div>
+          <div class="slide-meta-tag">Slide 12 / 12</div>
+        </div>
+        <div class="grid-3">
+          <div class="content-card">
+            <div class="card-title">1. Full Scale Run</div>
+            <p>Execute full un-capped monthly load across all 12–16M domains to record exact wall-clock runtime and BigQuery slot usage.</p>
+          </div>
+          <div class="content-card">
+            <div class="card-title">2. Calibrate Gates</div>
+            <p>Fine-tune anomaly thresholds (churn %, entropy limits) using 3 months of consecutive baseline crawl history.</p>
+          </div>
+          <div class="content-card">
+            <div class="card-title">3. Full Transparency</div>
+            <p>All pipeline logic, cost controls, and edge cases are documented in `design_doc.md` and `how_you_build.md`.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer Controls -->
+    <div class="deck-footer">
+      <div class="slide-counter" id="slideCounter">Slide 1 of 12</div>
+      <div class="controls">
+        <button class="nav-btn" id="prevBtn" onclick="changeSlide(-1)">❮ Previous</button>
+        <button class="nav-btn" id="nextBtn" onclick="changeSlide(1)">Next ❯</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentSlide = 1;
+    const totalSlides = 12;
+
+    function updateSlide() {
+      // Toggle active class on slides
+      for (let i = 1; i <= totalSlides; i++) {
+        const slide = document.getElementById(`slide-${i}`);
+        if (slide) {
+          slide.classList.remove('active');
+        }
+      }
+      const activeSlide = document.getElementById(`slide-${currentSlide}`);
+      if (activeSlide) {
+        activeSlide.classList.add('active');
+      }
+
+      // Update counter and buttons
+      document.getElementById('slideCounter').innerText = `Slide ${currentSlide} of ${totalSlides}`;
+      document.getElementById('prevBtn').disabled = currentSlide === 1;
+      document.getElementById('nextBtn').disabled = currentSlide === totalSlides;
+    }
+
+    function changeSlide(direction) {
+      const target = currentSlide + direction;
+      if (target >= 1 && target <= totalSlides) {
+        currentSlide = target;
+        updateSlide();
+      }
+    }
+
+    // Keyboard navigation (Left / Right arrow, Spacebar)
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        changeSlide(1);
+      } else if (e.key === 'ArrowLeft') {
+        changeSlide(-1);
+      }
+    });
+
+    // Initial setup
+    updateSlide();
+  </script>
+</body>
+</html>

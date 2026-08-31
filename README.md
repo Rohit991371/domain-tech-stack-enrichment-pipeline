@@ -14,6 +14,12 @@ the join-key contract, and failure modes), `docs/findings.md` for the raw
 source investigation this was based on, and `docs/how_you_build.md` for the
 dev-process reflection.
 
+## 📊 Project Presentation
+[![Presentation Deck](https://img.shields.io/badge/Interactive_Slides-View_Presentation-6E3D1D?style=for-the-badge&logo=slides)](https://rohit991371.github.io/domain-tech-stack-enrichment-pipeline/domain_tech_stack_enrichment_pipeline.html)
+
+Or click here: [**Domain Tech-Stack Enrichment Pipeline PPT Deck**](https://rohit991371.github.io/domain-tech-stack-enrichment-pipeline/domain_tech_stack_enrichment_pipeline.html)
+
+
 ## Status: verified against real BigQuery
 
 Every pipeline stage was first built and tested end-to-end against a

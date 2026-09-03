@@ -215,16 +215,41 @@ tech-stack-pipeline/
 
 ## LLM usage
 
-**None, in the production pipeline.** Every enrichment step here is
-deterministic SQL + Python (domain normalization, technology aggregation,
-diffing). HTTP Archive's Wappalyzer detections already arrive as
-structured `{technology, categories, info}` records -- there's no
-unstructured text to classify or summarize that would justify introducing
-an LLM call, its latency, its cost, and its nondeterminism into a pipeline
-whose main design goal is "make silent data loss impossible." If a future
-requirement needs judgment calls an LLM is actually suited for (e.g.
-deriving a "migration intent" flag from a version-string pattern, or
-summarizing a domain's stack in natural language for a sales rep), that's
-a genuinely different, additive feature -- it would get its own eval set,
-tracing schema, and prompt-versioning discipline at that point, not be
-retrofitted into this deterministic core.
+**None in the core enrichment path -- deliberately unchanged from v1.**
+Domain normalization, technology aggregation, and diffing are still pure
+SQL + Python. HTTP Archive's Wappalyzer detections already arrive as
+structured `{technology, categories, info}` records, so there was never
+anything unstructured to classify there. See `docs/design_doc.md` §5 for
+the full defense of that decision.
+
+**v2 adds two bounded, additive LLM call sites in a new autopilot layer**
+(`pipeline/orchestrator_agent.py`, `pipeline/summarize_change_event.py`),
+on top of the still-deterministic core above:
+- Reasoning about retry-vs-escalate timing when a scheduled arrival check
+  fails, capped by a deterministic circuit breaker the LLM cannot override.
+- A one-sentence, strictly-grounded summary of a `tech_change` event for a
+  human reviewer.
+
+Neither is on the correctness-critical path -- disable both (`--no-llm`)
+and the pipeline's actual outputs (the snapshot and the change-events
+feed) are unaffected. Full design, guardrails, and the human-approval gate
+are in `docs/design_doc.md` §6.
+
+## Autopilot layer (v2)
+
+```bash
+# Job 1 -- what the scheduled GitHub Action runs. Safe to run any time.
+python pipeline/orchestrator_agent.py check --crawl-date 2026-08-01 \
+    --previous-crawl-date 2026-07-01 --mock --no-llm
+
+# Job 2 -- only meaningful after `check` reaches PENDING_APPROVAL.
+# Re-validates from scratch before loading anything, regardless of state.
+python pipeline/orchestrator_agent.py approve --crawl-date 2026-08-01 \
+    --previous-crawl-date 2026-07-01 --mock
+```
+
+The real scheduling (`.github/workflows/autopilot.yml`) runs `check` on a
+cron and `approve` behind a GitHub *environment* requiring a human
+reviewer's approval click -- see `docs/design_doc.md` §6 for the one-time
+setup steps and the full three-layer design (self-triggering, bounded
+retry/diagnosis, human-in-the-loop approval).

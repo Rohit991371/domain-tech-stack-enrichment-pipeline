@@ -2,7 +2,7 @@
 # All thresholds/knobs live here so pipeline/*.py stay logic-only.
 
 gcp:
-    project_id: "Project_id" # bq client uses this for billing
+    project_id: "project-id" # bq client uses this for billing
     bq_location: "US"
 
 # Warehouse landing target -- see docs/design_doc.md section 3 and
@@ -11,7 +11,7 @@ gcp:
 # read (someone else's public dataset), `warehouse.*` is data I own and
 # write. Never point these at the same dataset.
 warehouse:
-    gcs_bucket: "GCS bucket name" # staging landing zone; see 3.3 in design_doc.md
+    gcs_bucket: "bucket name" # staging landing zone; see 3.3 in design_doc.md
     # gcs_bucket: " tech_stack_warehouse" # staging landing zone; see 3.3 in design_doc.md
     gcs_staging_prefix: "staging/tech-stack-pipeline"
     bq_dataset: "tech_stack_warehouse" # a dataset in the project, not httparchive's
@@ -41,6 +41,21 @@ guardrails:
     min_tech_coverage_ratio: 0.5 # >=50% of rows must have >=1 detected technology, else source looks broken
     max_row_count_drop_pct: 0.30 # if new snapshot has >30% fewer domains than previous month, STOP and alert
     max_row_count_spike_pct: 3.00 # if new snapshot has >300% more domains than previous month, STOP and alert (possible dupe/join bug)
+
+# Agentic autopilot layer -- see pipeline/orchestrator_agent.py and
+# docs/design_doc.md section 6. Everything here bounds what the agent is
+# ALLOWED to decide; it never gets to loosen a guardrail defined elsewhere
+# in this file (e.g. max_scan_bytes_production, the validation thresholds
+# above). max_retries / max_days_past_expected are the circuit breaker --
+# enforced in Python in orchestrator_agent.py before any LLM is even
+# called, not just prompted for.
+agentic:
+    llm_provider: "groq" # "groq" (free tier, OpenAI-compatible) or "anthropic"
+    llm_model: "llama-3.1-8b-instant" # swap to a claude-* model id if llm_provider: anthropic
+    max_retries: 5 # after this many failed arrival checks for one crawl_date, force escalate()
+    max_days_past_expected: 20 # after this many days past the expected arrival window, force escalate()
+    retry_base_minutes: 240 # advisory retry interval the agent reports; actual cadence is the cron schedule
+    max_summaries_per_run: 10 # cap on summarize_change_event() calls per pipeline run (cost control)
 
 paths:
     fixtures_dir: "data/fixtures"

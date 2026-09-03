@@ -22,6 +22,9 @@ data/change_events/*.json
 data/rejected/*.json
 data/pipeline_state.json
 
+data/llm_traces/*.jsonl
+data/orchestrator_state/*.json
+
 # Keep the fixtures dir itself and its .gitkeep-style presence, but the
 # generated fixture files are reproducible via `python pipeline/mock_source.py`
 data/fixtures/*.json

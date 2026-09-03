@@ -137,3 +137,36 @@ since it mocks the BigQuery client -- is real load-job duration, `MERGE`
 cost, or quota behavior at production scale. A teammate picking this up
 should still treat "land a real full month, not just 500 rows" as the
 next thing to do before this runs unattended.
+
+**v2, the agentic autopilot layer -- a third weakness, and where the dev
+loop actually helped.** My first draft of `orchestrator_agent.py` was
+architecturally wrong: I'd relabeled the existing deterministic control
+flow with agentic-sounding function names without changing what the system
+does, which is the exact anti-pattern section 5 warns about. Talking
+through the design before writing code -- specifically, asking "what is
+the human still doing manually every month that an agent could take over"
+instead of "where can I put an LLM call" -- is what surfaced the actual
+gap (self-triggering) instead of a cosmetic one. That's the clearest
+example in this whole project of AI-assisted *architecture* review paying
+off, separate from AI-assisted code generation.
+
+Where it cost more than doing it by hand: getting the GitHub Actions
+two-job, environment-gated approval flow right (artifact hand-off between
+the `check` and `approve` jobs, the `if: needs.check.outputs.pending_approval
+== 'true'` condition, the environment protection rule itself) took more
+back-and-forth than the Python code did -- YAML workflow syntax is exactly
+the kind of thing that looks plausible and is subtly wrong, and I ended up
+verifying the job-output plumbing by hand rather than trusting a first
+draft.
+
+**Known weakness to flag on this layer:** the retry/escalate reasoning in
+`_decide_retry_or_escalate()` has only been exercised with the
+deterministic fallback (`--no-llm` / no API key configured) and against
+mock fixtures -- I have not yet run it against a real Groq API key through
+several consecutive scheduled failures to see how the model's phrasing
+holds up in practice, only confirmed that the circuit breaker overrides it
+correctly either way (`tests/test_orchestrator_agent.py`). The circuit
+breaker is what actually matters for safety and is tested; the LLM's
+reasoning quality on top of it is not yet proven beyond a single manual
+run. A teammate picking this up should treat "watch it live through a real
+multi-day retry sequence" as the next thing to verify.

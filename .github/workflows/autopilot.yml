@@ -1,0 +1,184 @@
+name: Autopilot
+
+# Layer 1 (self-triggering) + Layer 3 (human-in-the-loop approval) of the
+# agentic architecture -- see docs/design_doc.md section 6 and
+# pipeline/orchestrator_agent.py's module docstring for the full design.
+#
+# Two jobs:
+#   check   -- runs on the schedule below, OR on-demand via "Run workflow"
+#              in the Actions tab (workflow_dispatch). Unattended, safe to
+#              run any time: it only ever reads the source and writes to
+#              local job disk, never to the real warehouse.
+#   approve -- only runs if `check` reached PENDING_APPROVAL (exit 0), and
+#              is gated behind the `production-approval` GitHub environment,
+#              which requires a human reviewer to click Approve in the
+#              Actions UI before this job is allowed to start. That click
+#              IS the human-in-the-loop gate from the design doc -- nothing
+#              in this file bypasses it, and orchestrator_agent.py's
+#              proceed_to_load() re-validates from scratch even after the
+#              click, so an approval on stale/wrong data still can't load.
+#
+# See "GitHub Actions setup" in docs/design_doc.md section 6 for the
+# one-time manual setup this workflow depends on (the environment +
+# required reviewer, and the repo secrets).
+
+on:
+  schedule:
+    # Runs daily at 06:00 UTC starting mid-month. HTTP Archive partitions
+    # are dated the 1st but don't land until ~1-2 weeks after the 2nd
+    # Tuesday (see docs/findings.md section 1) -- there is no point
+    # scheduling checks before that, so this cron intentionally does NOT
+    # start on the 1st. A daily check from the 15th onward, with the
+    # circuit breaker in config.yaml (agentic.max_retries /
+    # max_days_past_expected) as the backstop, comfortably covers the
+    # documented arrival window without wasting runs on days it's known
+    # not to have landed.
+    - cron: "0 6 15-31 * *"
+  workflow_dispatch:
+    # Manual trigger -- same code path as the schedule, for an on-demand
+    # run (e.g. "I know this month's crawl just landed, don't wait for
+    # tomorrow's cron"). Inputs default to "figure it out" via the
+    # workflow's own date logic below when left blank.
+    inputs:
+      crawl_date:
+        description: "YYYY-MM-01 to check (blank = current month, 1st)"
+        required: false
+        default: ""
+      previous_crawl_date:
+        description: "YYYY-MM-01 of the prior month, for the diff stage (blank = auto: one month before crawl_date)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      pending_approval: ${{ steps.run_check.outputs.pending_approval }}
+      crawl_date: ${{ steps.dates.outputs.crawl_date }}
+      previous_crawl_date: ${{ steps.dates.outputs.previous_crawl_date }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Resolve crawl dates
+        id: dates
+        run: |
+          if [ -n "${{ github.event.inputs.crawl_date }}" ]; then
+            CRAWL_DATE="${{ github.event.inputs.crawl_date }}"
+          else
+            CRAWL_DATE=$(date -u +%Y-%m-01)
+          fi
+          if [ -n "${{ github.event.inputs.previous_crawl_date }}" ]; then
+            PREV_DATE="${{ github.event.inputs.previous_crawl_date }}"
+          else
+            PREV_DATE=$(date -u -d "$CRAWL_DATE -1 month" +%Y-%m-01)
+          fi
+          echo "crawl_date=$CRAWL_DATE" >> "$GITHUB_OUTPUT"
+          echo "previous_crawl_date=$PREV_DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Run scheduled check (arrival -> extract -> build -> validate)
+        id: run_check
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          # Real GCP creds as a file, same pattern any BigQuery-in-CI setup uses.
+          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_JSON" ]; then
+            echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
+            echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
+          fi
+          set +e
+          python pipeline/orchestrator_agent.py check \
+            --crawl-date "${{ steps.dates.outputs.crawl_date }}" \
+            --previous-crawl-date "${{ steps.dates.outputs.previous_crawl_date }}"
+          CODE=$?
+          set -e
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          if [ "$CODE" -eq 0 ]; then
+            echo "pending_approval=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending_approval=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Exit codes 1 (retry scheduled) and 3/2/4 (fail/escalate/error)
+          # both end the job WITHOUT failing the whole workflow run red --
+          # "not arrived yet, retry tomorrow" is an expected, non-alerting
+          # outcome (see run_scheduled_check's own docstring for the exit
+          # code meanings). GitHub Actions' own notification on repeated
+          # failures would just be noise for the expected case; escalation
+          # (code 2) and validation failure (code 3) are still visible in
+          # the job log and in data/orchestrator_state/*.json for whoever
+          # checks in.
+          exit 0
+
+      - name: Upload run artifacts (state, snapshot, logs) for the approval job
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopilot-run-${{ steps.dates.outputs.crawl_date }}
+          path: |
+            data/orchestrator_state/
+            data/snapshots/
+            data/change_events/
+            data/llm_traces/
+            data/pipeline_state.json
+          retention-days: 14
+
+  approve:
+    needs: check
+    if: needs.check.outputs.pending_approval == 'true'
+    runs-on: ubuntu-latest
+    # THIS is the human-in-the-loop gate. Create this environment once in
+    # Settings -> Environments -> New environment -> "production-approval",
+    # add yourself as a required reviewer. GitHub will not start this job
+    # until that reviewer approves it in the Actions run's UI, no matter
+    # what "needs"/"if" above evaluate to.
+    environment: production-approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Download artifacts from the check job
+        uses: actions/download-artifact@v4
+        with:
+          name: autopilot-run-${{ needs.check.outputs.crawl_date }}
+          path: data/
+
+      - name: Approve and load (re-validates before touching the warehouse)
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_JSON" ]; then
+            echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
+            echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
+          fi
+          python pipeline/orchestrator_agent.py approve \
+            --crawl-date "${{ needs.check.outputs.crawl_date }}" \
+            --previous-crawl-date "${{ needs.check.outputs.previous_crawl_date }}" \
+            --land
+
+      - name: Upload post-load state
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopilot-loaded-${{ needs.check.outputs.crawl_date }}
+          path: |
+            data/orchestrator_state/
+            data/llm_traces/
+          retention-days: 90

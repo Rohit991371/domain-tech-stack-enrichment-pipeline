@@ -654,10 +654,20 @@ submission goes on that front -- design rationale, not built integration.
    the actual mechanism behind Layer 3 -- GitHub will not start the
    `approve` job in `.github/workflows/autopilot.yml` until that reviewer
    approves the run in the Actions UI.
-2. Repo Settings -> Secrets and variables -> Actions -> add
-   `GCP_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS_JSON` (the full
-   service-account key JSON, as a secret, never committed), `GCS_BUCKET`,
-   and `GROQ_API_KEY`.
-3. Nothing else -- the cron schedule and the `workflow_dispatch` manual
+2. Nothing else -- the cron schedule and the `workflow_dispatch` manual
    trigger are both already defined in the workflow file itself.
 
+**Authentication: Workload Identity Federation, not a static key.** The
+free-tier project this was built against enforces GCP's
+`iam.disableServiceAccountKeyCreation` organization policy (part of
+Google's "Secure by Default" baseline) -- exporting a service-account key
+JSON is blocked outright. Rather than working around that, the workflow
+authenticates via Workload Identity Federation instead: a Workload Identity
+Pool + Provider trusts GitHub's own OIDC token issuer, scoped by an
+attribute condition to this exact repository, and grants it permission to
+impersonate a least-privilege service account (`bigquery.dataEditor`,
+`bigquery.jobUser`, `storage.objectAdmin` -- nothing broader). The result
+is arguably a stronger guardrail than the key-based approach it replaced:
+no long-lived credential is ever stored in GitHub at all, the token minted
+per run is short-lived, and it cannot be used by any repository other than
+this one, even if it were somehow exfiltrated from a run log.

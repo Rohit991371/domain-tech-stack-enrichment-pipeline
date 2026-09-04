@@ -18,9 +18,14 @@ name: Autopilot
 #              proceed_to_load() re-validates from scratch even after the
 #              click, so an approval on stale/wrong data still can't load.
 #
-# See "GitHub Actions setup" in docs/design_doc.md section 6 for the
-# one-time manual setup this workflow depends on (the environment +
-# required reviewer, and the repo secrets).
+# Authentication: Workload Identity Federation, not a service-account key.
+# GCP's org policy (iam.disableServiceAccountKeyCreation, part of "Secure
+# by Default") blocks exporting a static key JSON -- WIF is the alternative
+# Google's own error message points to, and it's arguably the better choice
+# regardless: no long-lived secret ever sits in GitHub, the runner gets a
+# short-lived token minted per run, and it's scoped to this exact repo (see
+# the attribute-condition on the provider). See "GitHub Actions setup" in
+# docs/design_doc.md section 6 for the one-time setup this depends on.
 
 on:
   schedule:
@@ -51,6 +56,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write  # required for Workload Identity Federation -- lets the
+                    # runner request a GitHub OIDC token to exchange for GCP creds
 
 jobs:
   check:
@@ -61,6 +68,12 @@ jobs:
       previous_crawl_date: ${{ steps.dates.outputs.previous_crawl_date }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation, no key)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/117858436921/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'pipeline-ci@project-e8de1cc7-38fb-4d24-bb1.iam.gserviceaccount.com'
 
       - uses: actions/setup-python@v5
         with:
@@ -89,14 +102,8 @@ jobs:
         id: run_check
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          # Real GCP creds as a file, same pattern any BigQuery-in-CI setup uses.
-          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_JSON" ]; then
-            echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
-            echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
-          fi
           set +e
           python pipeline/orchestrator_agent.py check \
             --crawl-date "${{ steps.dates.outputs.crawl_date }}" \
@@ -145,6 +152,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Authenticate to Google Cloud (Workload Identity Federation, no key)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/117858436921/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'pipeline-ci@project-e8de1cc7-38fb-4d24-bb1.iam.gserviceaccount.com'
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -161,14 +174,9 @@ jobs:
       - name: Approve and load (re-validates before touching the warehouse)
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
           GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_JSON" ]; then
-            echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
-            echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
-          fi
           python pipeline/orchestrator_agent.py approve \
             --crawl-date "${{ needs.check.outputs.crawl_date }}" \
             --previous-crawl-date "${{ needs.check.outputs.previous_crawl_date }}" \

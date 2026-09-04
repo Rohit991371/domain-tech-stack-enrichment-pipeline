@@ -70,11 +70,13 @@ def _write_trace(entry: dict):
 
 
 def _call_groq(rendered_prompt: str, model: str) -> tuple[str, dict]:
+    import urllib.error
     import urllib.request
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY not set")
+    api_key = api_key.strip().strip('"').strip("'")  # defensive against stray quotes/whitespace in .env
 
     body = json.dumps({
         "model": model,
@@ -84,22 +86,40 @@ def _call_groq(rendered_prompt: str, model: str) -> tuple[str, dict]:
     req = urllib.request.Request(
         "https://api.groq.com/openai/v1/chat/completions",
         data=body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            # Groq's API sits behind Cloudflare, which blocks urllib's default
+            # "Python-urllib/3.x" User-Agent as a bot signature (Cloudflare
+            # error 1010) before the request ever reaches Groq's own auth
+            # check. A normal-looking UA is enough to pass that check.
+            "User-Agent": "Mozilla/5.0 (compatible; tech-stack-pipeline/1.0; +orchestrator_agent.py)",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        # Groq puts the actual reason (invalid key, revoked key, model access
+        # denied, etc.) in the response body -- surface it, don't just raise
+        # the bare status line, or every failure looks like "403: Forbidden"
+        # with no way to tell which of those it actually was.
+        detail = e.read().decode(errors="replace")
+        raise RuntimeError(f"Groq API {e.code} {e.reason}: {detail}") from None
     text = payload["choices"][0]["message"]["content"]
     usage = payload.get("usage", {})
     return text, {"input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens")}
 
 
 def _call_anthropic(rendered_prompt: str, model: str) -> tuple[str, dict]:
+    import urllib.error
     import urllib.request
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
+    api_key = api_key.strip().strip('"').strip("'")
 
     body = json.dumps({
         "model": model,
@@ -113,11 +133,16 @@ def _call_anthropic(rendered_prompt: str, model: str) -> tuple[str, dict]:
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; tech-stack-pipeline/1.0; +orchestrator_agent.py)",
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")
+        raise RuntimeError(f"Anthropic API {e.code} {e.reason}: {detail}") from None
     text = "".join(b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text")
     usage = payload.get("usage", {})
     return text, {"input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens")}
@@ -146,6 +171,10 @@ def _fallback(prompt_name: str, context: dict) -> str:
             "reasoning": "Deterministic fallback (no LLM configured): within expected arrival "
                          "window and under retry limits, so retrying is the safe default.",
         })
+    if prompt_name == "pass_summary":
+        n_checks = len(context.get("validation_checks", []))
+        return (f"{context.get('crawl_date', 'unknown date')}: all stages passed "
+                f"({context.get('domain_count', '?')} domains, {n_checks}/{n_checks} validation checks passed).")
     if prompt_name == "change_event_summary":
         event = context.get("event", {})
         added = ", ".join(event.get("added", [])) or "none"
@@ -166,7 +195,7 @@ def call_llm(prompt_name: str, version: str, context: dict[str, Any], provider: 
     """
     agentic_cfg = CFG.get("agentic", {})
     provider = provider or agentic_cfg.get("llm_provider", "groq")
-    model = model or agentic_cfg.get("llm_model", "llama-3.1-8b-instant")
+    model = model or agentic_cfg.get("llm_model", "openai/gpt-oss-20b")
 
     template = _load_prompt(prompt_name, version)
     rendered = template.format(input_json=json.dumps(context, indent=2, default=str))
@@ -178,6 +207,12 @@ def call_llm(prompt_name: str, version: str, context: dict[str, Any], provider: 
 
     text = None
     if use_llm:
+        key_env_var = "GROQ_API_KEY" if provider == "groq" else "ANTHROPIC_API_KEY"
+        if not os.environ.get(key_env_var):
+            print(f"[llm_client] WARNING: {key_env_var} not found in environment -- "
+                  f"falling back to deterministic response for '{prompt_name}'. "
+                  f"If you have a .env file, confirm config.py calls load_dotenv() "
+                  f"BEFORE this import runs.")
         try:
             if provider == "groq":
                 text, usage = _call_groq(rendered, model)
@@ -188,6 +223,9 @@ def call_llm(prompt_name: str, version: str, context: dict[str, Any], provider: 
         except Exception as exc:
             error = str(exc)
             text = None
+            print(f"[llm_client] WARNING: real LLM call to provider='{provider}' "
+                  f"model='{model}' failed, falling back to deterministic response. "
+                  f"Error: {error}")
 
     if text is None:
         used_fallback = True

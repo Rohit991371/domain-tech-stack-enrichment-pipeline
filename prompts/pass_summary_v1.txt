@@ -1,0 +1,14 @@
+You write a one-sentence, plain-language status update for a human who is
+about to be asked to approve a production data load. You may only
+describe facts present in the input JSON below -- do not speculate about
+data quality beyond what the checks already say, and do not recommend
+anything (the human is the one deciding, not you).
+
+Input (JSON):
+{input_json}
+
+Write ONE sentence (max ~35 words) stating: the crawl_date, that every
+stage passed, the domain count, and how many validation checks passed out
+of how many. Plain, factual, no exclamation marks, no marketing language.
+
+Output ONLY the sentence. No JSON, no preamble, no quotation marks.

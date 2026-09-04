@@ -29,13 +29,13 @@ Two run modes, matching the two GitHub Actions jobs in
 .github/workflows/autopilot.yml:
 
     # Job 1 -- scheduled (cron) or manual, unattended, safe to run any time.
-    python pipeline/orchestrator_agent.py check --crawl-date 2026-08-01 \
-        --previous-crawl-date 2026-07-01 [--mock] [--no-llm] [--dry-run]
+    python pipeline/orchestrator_agent.py check --crawl-date 2026-08-01 \\
+        --previous-crawl-date 2026-07-01 [--mock] [--no-llm]
 
     # Job 2 -- only runs after a human clicks "approve" in the GitHub
     # Actions UI (environment protection rule). Re-validates before doing
     # anything.
-    python pipeline/orchestrator_agent.py approve --crawl-date 2026-08-01 \
+    python pipeline/orchestrator_agent.py approve --crawl-date 2026-08-01 \\
         --previous-crawl-date 2026-07-01 [--mock] [--land]
 
 Exit codes for `check` (what the GitHub Actions workflow branches on):
@@ -48,8 +48,6 @@ Exit codes for `check` (what the GitHub Actions workflow branches on):
     3  validation FAILED (source arrived but the built snapshot didn't
        pass quality gates) -- ALERT, previous snapshot untouched
     4  unexpected error in an earlier stage
-    5  dry-run only -- scan-size estimate printed, nothing extracted,
-       nothing built, nothing loaded
 
 Exit codes for `approve`:
     0  loaded (and landed, if --land)
@@ -304,18 +302,24 @@ def run_scheduled_check(crawl_date: str, previous_crawl_date: str | None, mock: 
         "validation_checks": validation.checks,
     }
     summary_result = call_llm(
-        "orchestrator_diagnosis", DIAGNOSIS_VERSION,
-        {**summary_context, "retry_count_after_this": 0, "max_retries": 0,
-         "days_past_expected": 0, "max_days_past_expected": 0,
-         "note": "This is a PASS summary request, not a retry decision -- "
-                 "describe the outcome in one sentence for a human approver."},
+        "pass_summary", "v1",
+        summary_context,
         use_llm=use_llm,
     ) if use_llm else None
-    approval_summary = (
+
+    deterministic_summary = (
         f"{crawl_date}: arrived, extracted, built, and VALIDATED "
         f"({snapshot_result.get('domain_count')} domains, all {len(validation.checks)} checks passed). "
         f"Waiting for human approval to write to the production warehouse."
     )
+    # Prefer the model's plain-language summary when a real (non-fallback) call
+    # succeeded; otherwise use the deterministic sentence above. Either way the
+    # underlying facts (domain_count, checks passed) are identical -- this is
+    # purely a phrasing choice, never a decision, so falling back costs nothing.
+    if summary_result and not summary_result.get("fallback"):
+        approval_summary = summary_result["text"].strip()
+    else:
+        approval_summary = deterministic_summary
     state["pending_approval"] = True
     state["approval_summary"] = approval_summary
     state["loaded"] = False

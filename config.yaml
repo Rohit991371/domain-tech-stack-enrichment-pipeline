@@ -51,7 +51,7 @@ guardrails:
 # called, not just prompted for.
 agentic:
     llm_provider: "groq" # "groq" (free tier, OpenAI-compatible) or "anthropic"
-    llm_model: "llama-3.1-8b-instant" # swap to a claude-* model id if llm_provider: anthropic
+    llm_model: "openai/gpt-oss-20b" # Groq deprecated llama-3.1-8b-instant on 2026-06-17; this is its recommended replacement (console.groq.com/docs/deprecations). Swap to a claude-* model id if llm_provider: anthropic
     max_retries: 5 # after this many failed arrival checks for one crawl_date, force escalate()
     max_days_past_expected: 20 # after this many days past the expected arrival window, force escalate()
     retry_base_minutes: 240 # advisory retry interval the agent reports; actual cadence is the cron schedule

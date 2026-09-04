@@ -170,3 +170,23 @@ breaker is what actually matters for safety and is tested; the LLM's
 reasoning quality on top of it is not yet proven beyond a single manual
 run. A teammate picking this up should treat "watch it live through a real
 multi-day retry sequence" as the next thing to verify.
+
+**Two bugs caught only once I moved past mock data to a real API key,**
+worth naming because they're the kind of thing mock-only testing hides:
+(1) `llm_client.py`'s exception handler swallowed a failed real API call
+and silently fell back to the deterministic response, logging the error
+only to `data/llm_traces/traces.jsonl` -- so a genuinely broken
+integration (in this case, Groq deprecating the default model
+`llama-3.1-8b-instant` on 2026-06-17, after I'd already picked it) looked
+identical to "working as designed, LLM disabled" from the terminal. Fixed
+by printing a `[llm_client] WARNING: ...` line to the console the moment a
+real call fails, with the actual error. (2) I'd reused the retry-decision
+prompt's JSON-output schema for a second, unrelated purpose (the PASS
+summary handed to the human approver), which would have printed a raw
+JSON blob as the "plain-language summary" the design doc promises -- given
+its own prompt file (`prompts/pass_summary_v1.txt`) instead. Neither bug
+was caught by `pytest` (both tests pass `use_llm=False` by design, to keep
+the circuit breaker tests independent of any model's behavior) -- both
+only surfaced once a real key was in play. That's a gap in the test
+suite worth flagging to a teammate: the fallback path is well-tested, the
+real-provider path is currently only verified by hand.

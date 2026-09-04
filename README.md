@@ -237,7 +237,28 @@ are in `docs/design_doc.md` §6.
 
 ## Autopilot layer (v2)
 
+**One-time setup -- API key for the LLM calls:**
 ```bash
+pip install -r requirements.txt   # now includes python-dotenv
+cp .env.example .env
+# edit .env, set GROQ_API_KEY= (free tier: https://console.groq.com -> API Keys)
+```
+`config.py` calls `load_dotenv()` before anything else reads `os.environ`, so
+every module that does `from config import CFG` -- `pipeline/llm_client.py`
+included -- picks up `.env` automatically. No key configured (or `--no-llm`
+passed) is not an error: `llm_client.py` falls back to a deterministic
+rule-based response and prints a `[llm_client] WARNING: ...` line saying so,
+so a missing/expired key is visible in the terminal, not just buried in
+`data/llm_traces/traces.jsonl`.
+
+```bash
+# Always dry-run a real production check first, same discipline as extract.py:
+python pipeline/orchestrator_agent.py check --crawl-date 2026-08-01 \
+    --source production --limit-rows 500 --dry-run
+# prints the scan-size estimate and stops (exit code 5) -- nothing extracted,
+# nothing built, nothing loaded. Re-run without --dry-run once the estimate
+# looks right.
+
 # Job 1 -- what the scheduled GitHub Action runs. Safe to run any time.
 python pipeline/orchestrator_agent.py check --crawl-date 2026-08-01 \
     --previous-crawl-date 2026-07-01 --mock --no-llm
@@ -253,3 +274,16 @@ cron and `approve` behind a GitHub *environment* requiring a human
 reviewer's approval click -- see `docs/design_doc.md` §6 for the one-time
 setup steps and the full three-layer design (self-triggering, bounded
 retry/diagnosis, human-in-the-loop approval).
+
+Two new data directories show up once you run this layer:
+- `data/orchestrator_state/<crawl_date>.json` -- one file per month, tracking
+  retry count, whether the circuit breaker tripped, and whether that month
+  is currently `pending_approval` or already `loaded`. This is what lets a
+  fresh scheduled cron process (no memory of prior runs) know how many times
+  it's already tried a given month.
+- `data/llm_traces/traces.jsonl` -- one JSON line per LLM call (real or
+  fallback), with `trace_id`, `model`, `prompt_version`, latency, token
+  counts, and estimated cost. This is the tracing artifact the brief asks
+  for.
+
+Both are gitignored by default (they're run-time state, not source)

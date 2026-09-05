@@ -191,6 +191,10 @@ jobs:
           else
             echo "pending_approval=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "## Autopilot check result" >> "$GITHUB_STEP_SUMMARY"
+          echo "**exit code:** $CODE" >> "$GITHUB_STEP_SUMMARY"
+          echo "**crawl_date:** ${{ steps.dates.outputs.crawl_date }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**pending_approval:** $([ "$CODE" -eq 0 ] && echo true || echo false)" >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
 

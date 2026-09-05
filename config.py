@@ -9,6 +9,11 @@ from typing import Any
 
 import yaml
 
+
+from dotenv import load_dotenv
+load_dotenv()
+
+
 REPO_ROOT = Path(__file__).resolve().parent
 
 

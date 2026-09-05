@@ -516,3 +516,158 @@ that exists in this submission because no LLM call exists in this
 submission -- adding the scaffolding without the feature it scaffolds
 would be theater, not engineering.
 
+## 6. v2: the agentic autopilot layer
+
+Section 5 ended by naming this exact gap as a strong v2 candidate, and it
+turned out to be the actual next request: after reviewing v1, Suresh asked
+for the pipeline to "run on autopilot mode, fully agentic driven instead
+of deterministic legacy way of running things."
+
+**First pass at this request was wrong, and worth naming.** My first
+instinct was to look for places inside the existing deterministic stages
+(arrival check, validation) to swap in LLM judgment. That would have been
+exactly the failure mode I criticize elsewhere in this doc: relabeling
+already-correct deterministic control flow with agentic vocabulary
+without changing what the system actually does. The real gap wasn't
+missing judgment inside the pipeline -- it was that a human (me) still has
+to manually type `python pipeline/run_pipeline.py --crawl-date ...` every
+month. "Legacy way of running things" means *invoked*, not *unintelligent*.
+"Autopilot" means the system decides *when* to check itself, without being
+told to.
+
+That reframing produced a three-layer design, each layer solving a
+distinct problem, with the deterministic core from sections 1-5 untouched
+underneath all three:
+
+**Layer 1 -- self-triggering.** A GitHub Actions `schedule:` cron
+(`.github/workflows/autopilot.yml`) wakes the pipeline with no manual
+invocation. The cron window itself is grounded in `findings.md` §1 (crawl
+labelled the 1st, doesn't land until ~1-2 weeks after the 2nd Tuesday) --
+it starts checking from the 15th, not the 1st, so it isn't burning runs on
+days already known not to have data. I deliberately did not attempt a live
+scheduled demo in the Loom given the free-tier trial account's time
+constraints; this layer is proven instead by local testing plus the workflow
+file and setup steps documented in detail below.
+
+**Layer 2 -- autonomous retry/diagnosis, bounded by a deterministic circuit
+breaker.** `pipeline/orchestrator_agent.py` wraps the existing arrival
+check: each scheduled wake calls it, and if the partition hasn't landed,
+the agent reasons over the specific failure (attempt number, days past the
+expected arrival window, the known release-cycle pattern) to recommend a
+retry interval or an escalation, rather than a blind fixed cron interval
+retrying forever. This is the one place in the whole pipeline where I think
+LLM judgment is actually earning its keep over a plain `if/else`: "is this
+still within the normal range of when HTTP Archive crawls land, given how
+many times I've already checked" is a fuzzier call than anything else in
+the pipeline, and the cost of getting it slightly wrong (checking a bit too
+early or late) is low.
+
+That said, the *ceiling* on this judgment is not agentic. `config.yaml`'s
+`agentic.max_retries` and `agentic.max_days_past_expected` are checked in
+plain Python in `_decide_retry_or_escalate()` *before* any LLM is even
+called -- if either limit is hit, the function returns `"recommendation":
+"escalate"` without consulting the model at all. And as defense in depth,
+if a model is called and (contrary to its instructions) still recommends
+`retry_later` past the limit, the code overrides it. The circuit breaker is
+therefore enforced twice, and only one of those two enforcements involves
+the LLM's cooperation. This is the same category of guardrail as
+`validate.py`'s thresholds: a number in `config.yaml`, checked in Python,
+that no prompt can talk its way around.
+
+**Layer 3 -- human-in-the-loop approval before the one irreversible
+action.** Once arrival, extraction, normalization, and `validate.py` all
+deterministically PASS, `proceed_to_load()` does not fire automatically.
+The run stops in a `pending_approval` state, `orchestrator_agent.py`
+writes a plain-language summary of what passed, and a second GitHub
+Actions job -- gated behind a `production-approval` *environment* with a
+required reviewer -- is the only thing that can call
+`proceed_to_load()`. I added this checkpoint myself (it wasn't in Suresh's
+literal ask), and kept it after reviewing the design: writing a new
+snapshot over `tech_stack_snapshot_latest` is the one step in this whole
+pipeline that isn't cheaply reversible the way a re-run of an earlier
+stage is, so it gets a human at the moment of highest stakes, same
+category as the validation gate, just enforced by a person instead of a
+rule. Critically, `proceed_to_load()` does not trust that it was invoked
+correctly -- it re-runs `validate_snapshot()` itself, fresh, every time
+it's called, and refuses (exit code 2) if that fresh check isn't PASS,
+regardless of what any state file or prior approval says. This is checked
+directly in `tests/test_orchestrator_agent.py`
+(`test_proceed_to_load_refuses_when_no_snapshot_exists`,
+`test_proceed_to_load_refuses_when_snapshot_too_small`).
+
+**Guardrails, restated as a single list, because this is the part that
+actually matters:** the agent cannot (1) load anything without a fresh
+`validate.py` PASS, (2) exceed the retry-count or days-past-expected
+ceilings in `config.yaml` regardless of its own reasoning, (3) skip the
+dry-run cost check before any billed BigQuery execution, or (4) touch any
+row-count/anomaly threshold -- all four remain exactly as deterministic as
+they were in v1. The only things genuinely delegated to the model are
+*when to retry* (within a bounded window) and *how to phrase a summary*
+of already-computed, already-correct facts.
+
+**LLM call site #2: `pipeline/summarize_change_event.py`.** Takes one
+event from `diff_snapshots.py`'s output and produces a single grounded
+sentence -- e.g. "Zoho CRM -> Salesforce, commonly associated with CRM
+migrations." It does not score, prioritize, or invent anything about the
+company beyond what the technology names themselves imply; the prompt
+(`prompts/change_event_summary_v1.txt`) explicitly forbids that. If this
+call is disabled or fails, the change-events feed itself is unaffected --
+it's a descriptive layer on top of already-correct data, not a dependency
+for correctness, same posture as everything else agentic in this
+submission.
+
+**Provider choice.** Groq's free tier (OpenAI-compatible endpoint) is what
+both call sites run against, not the Claude API, to keep this within a
+free-tier build. Both were prototyped against Claude first specifically so
+switching providers stayed a one-line config change (`agentic.llm_provider`
+in `config.yaml`) rather than a rewrite -- `pipeline/llm_client.py` is the
+only file that talks to either API, and both request-shaping functions
+exist side by side there. Every call, on either provider, writes one line
+to `data/llm_traces/traces.jsonl` with a `trace_id`, `model`,
+`prompt_version`, latency, token counts, and an estimated cost -- this is
+the tracing/prompt-versioning piece of the brief that v1 had no LLM call
+to attach to. Prompts themselves live as versioned files under `prompts/`
+(`orchestrator_diagnosis_v1.txt`, `change_event_summary_v1.txt`), never as
+inline strings in the calling code, so the version number in a trace line
+and the version number in the filename can't drift apart.
+
+**Firmable product alignment, and what's deliberately scoped out.**
+Firmable's existing Signals / Signal Agent Actions surface (per
+help.firmable.com's public docs) already does lead scoring, CRM task
+creation, and webhook fan-out on top of buying signals. It would have been
+easy to over-scope this submission into simulating that -- an ICP-scoring
+layer, a fake CRM push, a "migration intent" score derived from
+`summarize_change_event()`'s output. I deliberately did not build any of
+that. There's no ground truth to validate scoring logic against inside
+this project, and inventing plausible-looking business logic against a
+CRM surface I don't actually have access to would undermine the
+correctness-first argument the rest of this document makes -- it's the
+same restraint as the zero-LLM-in-v1 decision in section 5, applied one
+layer further out. What I did keep is the framing: `summarize_change_event()`'s
+output is shaped so that it *could* plug into Firmable's existing Signals
+pipeline as an upstream signal-generation step, and that's as far as this
+submission goes on that front -- design rationale, not built integration.
+
+**GitHub Actions setup this workflow depends on (one-time, manual):**
+1. Repo Settings -> Environments -> New environment -> name it
+   `production-approval` -> add yourself as a required reviewer. This is
+   the actual mechanism behind Layer 3 -- GitHub will not start the
+   `approve` job in `.github/workflows/autopilot.yml` until that reviewer
+   approves the run in the Actions UI.
+2. Nothing else -- the cron schedule and the `workflow_dispatch` manual
+   trigger are both already defined in the workflow file itself.
+
+**Authentication: Workload Identity Federation, not a static key.** The
+free-tier project this was built against enforces GCP's
+`iam.disableServiceAccountKeyCreation` organization policy (part of
+Google's "Secure by Default" baseline) -- exporting a service-account key
+JSON is blocked outright. Rather than working around that, the workflow
+authenticates via Workload Identity Federation instead: a Workload Identity
+Pool + Provider trusts GitHub's own OIDC token issuer, scoped by an
+attribute condition to this exact repository, and grants it permission to
+impersonate a least-privilege service account (`bigquery.dataEditor`,
+`bigquery.jobUser`, `storage.objectAdmin` -- nothing broader). The result
+is arguably a stronger guardrail than the key-based approach it replaced:
+no long-lived credential is ever stored in GitHub at all, the token minted
+per run is short-lived, and it cannot be used by any repository other than
+this one, even if it were somehow exfiltrated from a run log.

@@ -1,0 +1,260 @@
+name: Autopilot
+
+# Layer 1 (self-triggering) + Layer 3 (human-in-the-loop approval) of the
+# agentic architecture -- see docs/design_doc.md section 6 and
+# pipeline/orchestrator_agent.py's module docstring for the full design.
+#
+# Two jobs:
+#   check   -- runs on the schedule below, OR on-demand via "Run workflow"
+#              in the Actions tab (workflow_dispatch). Unattended, safe to
+#              run any time: it only ever reads the source and writes to
+#              local job disk, never to the real warehouse.
+#   approve -- only runs if `check` reached PENDING_APPROVAL (exit 0), and
+#              is gated behind the `production-approval` GitHub environment,
+#              which requires a human reviewer to click Approve in the
+#              Actions UI before this job is allowed to start. That click
+#              IS the human-in-the-loop gate from the design doc -- nothing
+#              in this file bypasses it, and orchestrator_agent.py's
+#              proceed_to_load() re-validates from scratch even after the
+#              click, so an approval on stale/wrong data still can't load.
+#
+# Authentication: Workload Identity Federation, not a service-account key.
+# GCP's org policy (iam.disableServiceAccountKeyCreation, part of "Secure
+# by Default") blocks exporting a static key JSON -- WIF is the alternative
+# Google's own error message points to, and it's arguably the better choice
+# regardless: no long-lived secret ever sits in GitHub, the runner gets a
+# short-lived token minted per run, and it's scoped to this exact repo (see
+# the attribute-condition on the provider). See "GitHub Actions setup" in
+# docs/design_doc.md section 6 for the one-time setup this depends on.
+
+on:
+  schedule:
+    # Runs daily at 06:00 UTC starting mid-month. HTTP Archive partitions
+    # are dated the 1st but don't land until ~1-2 weeks after the 2nd
+    # Tuesday (see docs/findings.md section 1) -- there is no point
+    # scheduling checks before that, so this cron intentionally does NOT
+    # start on the 1st. A daily check from the 15th onward, with the
+    # circuit breaker in config.yaml (agentic.max_retries /
+    # max_days_past_expected) as the backstop, comfortably covers the
+    # documented arrival window without wasting runs on days it's known
+    # not to have landed.
+    - cron: "0 6 15-31 * *"
+  workflow_dispatch:
+    # Manual trigger -- same code path as the schedule, for an on-demand
+    # run (e.g. "I know this month's crawl just landed, don't wait for
+    # tomorrow's cron"). Inputs default to "figure it out" via the
+    # workflow's own date logic below when left blank.
+    inputs:
+      crawl_date:
+        description: "YYYY-MM-01 to check (blank = current month, 1st)"
+        required: false
+        default: ""
+      previous_crawl_date:
+        description: "YYYY-MM-01 of the prior month, for the diff stage (blank = auto: one month before crawl_date)"
+        required: false
+        default: ""
+      source:
+        description: "production or sample -- ALWAYS test with 'sample' or a capped limit_rows first"
+        required: false
+        default: "sample"
+        type: choice
+        options: ["sample", "production"]
+      limit_rows:
+        description: "Cap on origins pulled (leave blank for sample; set e.g. 500 for a capped real production test)"
+        required: false
+        default: ""
+      mock:
+        description: "Use mock fixtures instead of real BigQuery entirely"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write  # required for Workload Identity Federation -- lets the
+                    # runner request a GitHub OIDC token to exchange for GCP creds
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      pending_approval: ${{ steps.run_check.outputs.pending_approval }}
+      crawl_date: ${{ steps.dates.outputs.crawl_date }}
+      previous_crawl_date: ${{ steps.dates.outputs.previous_crawl_date }}
+      mock: ${{ steps.params.outputs.mock }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation, no key)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/117858436921/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'pipeline-ci@project-e8de1cc7-38fb-4d24-bb1.iam.gserviceaccount.com'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Resolve crawl dates
+        id: dates
+        run: |
+          if [ -n "${{ github.event.inputs.crawl_date }}" ]; then
+            CRAWL_DATE="${{ github.event.inputs.crawl_date }}"
+          else
+            CRAWL_DATE=$(date -u +%Y-%m-01)
+          fi
+          if [ -n "${{ github.event.inputs.previous_crawl_date }}" ]; then
+            PREV_DATE="${{ github.event.inputs.previous_crawl_date }}"
+          else
+            PREV_DATE=$(date -u -d "$CRAWL_DATE -1 month" +%Y-%m-01)
+          fi
+          echo "crawl_date=$CRAWL_DATE" >> "$GITHUB_OUTPUT"
+          echo "previous_crawl_date=$PREV_DATE" >> "$GITHUB_OUTPUT"
+      
+      - name: Resolve run parameters (source / limit_rows / mock)
+        id: params
+        run: |
+          # Scheduled (cron) runs have no github.event.inputs at all -- they
+          # MUST default to a real, unbounded production check, never sample.
+          # Manual workflow_dispatch runs default to the safe sample table
+          # unless someone explicitly picks production in the UI.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            SOURCE="production"
+            LIMIT_ROWS=""
+            MOCK="false"
+          else
+            SOURCE="${{ github.event.inputs.source }}"
+            [ -z "$SOURCE" ] && SOURCE="sample"
+            LIMIT_ROWS="${{ github.event.inputs.limit_rows }}"
+            MOCK="${{ github.event.inputs.mock }}"
+            [ -z "$MOCK" ] && MOCK="false"
+          fi
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "limit_rows=$LIMIT_ROWS" >> "$GITHUB_OUTPUT"
+          echo "mock=$MOCK" >> "$GITHUB_OUTPUT"
+
+      # - name: Run scheduled check (arrival -> extract -> build -> validate)
+      #   id: run_check
+      #   env:
+      #     GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      #     GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      #   run: |
+      #     set +e
+      #     python pipeline/orchestrator_agent.py check \
+      #       --crawl-date "${{ steps.dates.outputs.crawl_date }}" \
+      #       --previous-crawl-date "${{ steps.dates.outputs.previous_crawl_date }}" \
+      #       --source "${{ github.event.inputs.source || 'sample' }}" \
+      #       ${{ github.event.inputs.limit_rows != '' && format('--limit-rows {0}', github.event.inputs.limit_rows) || '' }} \
+      #       ${{ github.event.inputs.mock == 'true' && '--mock' || '' }}
+      #     CODE=$?
+      #     ...
+      #     set -e
+      #     echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+      #     if [ "$CODE" -eq 0 ]; then
+      #       echo "pending_approval=true" >> "$GITHUB_OUTPUT"
+      #     else
+      #       echo "pending_approval=false" >> "$GITHUB_OUTPUT"
+      #     fi
+      #     # Exit codes 1 (retry scheduled) and 3/2/4 (fail/escalate/error)
+      #     # both end the job WITHOUT failing the whole workflow run red --
+      #     # "not arrived yet, retry tomorrow" is an expected, non-alerting
+      #     # outcome (see run_scheduled_check's own docstring for the exit
+      #     # code meanings). GitHub Actions' own notification on repeated
+      #     # failures would just be noise for the expected case; escalation
+      #     # (code 2) and validation failure (code 3) are still visible in
+      #     # the job log and in data/orchestrator_state/*.json for whoever
+      #     # checks in.
+      #     exit 0
+      - name: Run scheduled check (arrival -> extract -> build -> validate)
+        id: run_check
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set +e
+          CMD="python pipeline/orchestrator_agent.py check --crawl-date \"${{ steps.dates.outputs.crawl_date }}\" --previous-crawl-date \"${{ steps.dates.outputs.previous_crawl_date }}\" --source \"${{ steps.params.outputs.source }}\""
+          if [ -n "${{ steps.params.outputs.limit_rows }}" ]; then
+            CMD="$CMD --limit-rows ${{ steps.params.outputs.limit_rows }}"
+          fi
+          if [ "${{ steps.params.outputs.mock }}" = "true" ]; then
+            CMD="$CMD --mock"
+          fi
+          eval "$CMD"
+          CODE=$?
+          set -e
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          if [ "$CODE" -eq 0 ]; then
+            echo "pending_approval=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending_approval=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+
+      - name: Upload run artifacts (state, snapshot, logs) for the approval job
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopilot-run-${{ steps.dates.outputs.crawl_date }}
+          path: |
+            data/orchestrator_state/
+            data/snapshots/
+            data/change_events/
+            data/llm_traces/
+            data/pipeline_state.json
+          retention-days: 14
+
+  approve:
+    needs: check
+    if: needs.check.outputs.pending_approval == 'true'
+    runs-on: ubuntu-latest
+    # THIS is the human-in-the-loop gate. Create this environment once in
+    # Settings -> Environments -> New environment -> "production-approval",
+    # add yourself as a required reviewer. GitHub will not start this job
+    # until that reviewer approves it in the Actions run's UI, no matter
+    # what "needs"/"if" above evaluate to.
+    environment: production-approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation, no key)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/117858436921/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'pipeline-ci@project-e8de1cc7-38fb-4d24-bb1.iam.gserviceaccount.com'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Download artifacts from the check job
+        uses: actions/download-artifact@v4
+        with:
+          name: autopilot-run-${{ needs.check.outputs.crawl_date }}
+          path: data/
+
+      - name: Approve and load (re-validates before touching the warehouse)
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          CMD="python pipeline/orchestrator_agent.py approve --crawl-date \"${{ needs.check.outputs.crawl_date }}\" --previous-crawl-date \"${{ needs.check.outputs.previous_crawl_date }}\" --land"
+          if [ "${{ needs.check.outputs.mock }}" = "true" ]; then
+            CMD="$CMD --mock"
+          fi
+          eval "$CMD"
+          
+      - name: Upload post-load state
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopilot-loaded-${{ needs.check.outputs.crawl_date }}
+          path: |
+            data/orchestrator_state/
+            data/llm_traces/
+          retention-days: 90

@@ -53,6 +53,21 @@ on:
         description: "YYYY-MM-01 of the prior month, for the diff stage (blank = auto: one month before crawl_date)"
         required: false
         default: ""
+      source:
+        description: "production or sample -- ALWAYS test with 'sample' or a capped limit_rows first"
+        required: false
+        default: "sample"
+        type: choice
+        options: ["sample", "production"]
+      limit_rows:
+        description: "Cap on origins pulled (leave blank for sample; set e.g. 500 for a capped real production test)"
+        required: false
+        default: ""
+      mock:
+        description: "Use mock fixtures instead of real BigQuery entirely"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -66,6 +81,7 @@ jobs:
       pending_approval: ${{ steps.run_check.outputs.pending_approval }}
       crawl_date: ${{ steps.dates.outputs.crawl_date }}
       previous_crawl_date: ${{ steps.dates.outputs.previous_crawl_date }}
+      mock: ${{ steps.params.outputs.mock }}
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +113,61 @@ jobs:
           fi
           echo "crawl_date=$CRAWL_DATE" >> "$GITHUB_OUTPUT"
           echo "previous_crawl_date=$PREV_DATE" >> "$GITHUB_OUTPUT"
+      
+      - name: Resolve run parameters (source / limit_rows / mock)
+        id: params
+        run: |
+          # Scheduled (cron) runs have no github.event.inputs at all -- they
+          # MUST default to a real, unbounded production check, never sample.
+          # Manual workflow_dispatch runs default to the safe sample table
+          # unless someone explicitly picks production in the UI.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            SOURCE="production"
+            LIMIT_ROWS=""
+            MOCK="false"
+          else
+            SOURCE="${{ github.event.inputs.source }}"
+            [ -z "$SOURCE" ] && SOURCE="sample"
+            LIMIT_ROWS="${{ github.event.inputs.limit_rows }}"
+            MOCK="${{ github.event.inputs.mock }}"
+            [ -z "$MOCK" ] && MOCK="false"
+          fi
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "limit_rows=$LIMIT_ROWS" >> "$GITHUB_OUTPUT"
+          echo "mock=$MOCK" >> "$GITHUB_OUTPUT"
 
+      # - name: Run scheduled check (arrival -> extract -> build -> validate)
+      #   id: run_check
+      #   env:
+      #     GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      #     GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      #   run: |
+      #     set +e
+      #     python pipeline/orchestrator_agent.py check \
+      #       --crawl-date "${{ steps.dates.outputs.crawl_date }}" \
+      #       --previous-crawl-date "${{ steps.dates.outputs.previous_crawl_date }}" \
+      #       --source "${{ github.event.inputs.source || 'sample' }}" \
+      #       ${{ github.event.inputs.limit_rows != '' && format('--limit-rows {0}', github.event.inputs.limit_rows) || '' }} \
+      #       ${{ github.event.inputs.mock == 'true' && '--mock' || '' }}
+      #     CODE=$?
+      #     ...
+      #     set -e
+      #     echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+      #     if [ "$CODE" -eq 0 ]; then
+      #       echo "pending_approval=true" >> "$GITHUB_OUTPUT"
+      #     else
+      #       echo "pending_approval=false" >> "$GITHUB_OUTPUT"
+      #     fi
+      #     # Exit codes 1 (retry scheduled) and 3/2/4 (fail/escalate/error)
+      #     # both end the job WITHOUT failing the whole workflow run red --
+      #     # "not arrived yet, retry tomorrow" is an expected, non-alerting
+      #     # outcome (see run_scheduled_check's own docstring for the exit
+      #     # code meanings). GitHub Actions' own notification on repeated
+      #     # failures would just be noise for the expected case; escalation
+      #     # (code 2) and validation failure (code 3) are still visible in
+      #     # the job log and in data/orchestrator_state/*.json for whoever
+      #     # checks in.
+      #     exit 0
       - name: Run scheduled check (arrival -> extract -> build -> validate)
         id: run_check
         env:
@@ -105,9 +175,14 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           set +e
-          python pipeline/orchestrator_agent.py check \
-            --crawl-date "${{ steps.dates.outputs.crawl_date }}" \
-            --previous-crawl-date "${{ steps.dates.outputs.previous_crawl_date }}"
+          CMD="python pipeline/orchestrator_agent.py check --crawl-date \"${{ steps.dates.outputs.crawl_date }}\" --previous-crawl-date \"${{ steps.dates.outputs.previous_crawl_date }}\" --source \"${{ steps.params.outputs.source }}\""
+          if [ -n "${{ steps.params.outputs.limit_rows }}" ]; then
+            CMD="$CMD --limit-rows ${{ steps.params.outputs.limit_rows }}"
+          fi
+          if [ "${{ steps.params.outputs.mock }}" = "true" ]; then
+            CMD="$CMD --mock"
+          fi
+          eval "$CMD"
           CODE=$?
           set -e
           echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
@@ -116,16 +191,8 @@ jobs:
           else
             echo "pending_approval=false" >> "$GITHUB_OUTPUT"
           fi
-          # Exit codes 1 (retry scheduled) and 3/2/4 (fail/escalate/error)
-          # both end the job WITHOUT failing the whole workflow run red --
-          # "not arrived yet, retry tomorrow" is an expected, non-alerting
-          # outcome (see run_scheduled_check's own docstring for the exit
-          # code meanings). GitHub Actions' own notification on repeated
-          # failures would just be noise for the expected case; escalation
-          # (code 2) and validation failure (code 3) are still visible in
-          # the job log and in data/orchestrator_state/*.json for whoever
-          # checks in.
           exit 0
+
 
       - name: Upload run artifacts (state, snapshot, logs) for the approval job
         uses: actions/upload-artifact@v4
@@ -177,11 +244,12 @@ jobs:
           GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          python pipeline/orchestrator_agent.py approve \
-            --crawl-date "${{ needs.check.outputs.crawl_date }}" \
-            --previous-crawl-date "${{ needs.check.outputs.previous_crawl_date }}" \
-            --land
-
+          CMD="python pipeline/orchestrator_agent.py approve --crawl-date \"${{ needs.check.outputs.crawl_date }}\" --previous-crawl-date \"${{ needs.check.outputs.previous_crawl_date }}\" --land"
+          if [ "${{ needs.check.outputs.mock }}" = "true" ]; then
+            CMD="$CMD --mock"
+          fi
+          eval "$CMD"
+          
       - name: Upload post-load state
         uses: actions/upload-artifact@v4
         with:

@@ -11,7 +11,7 @@ gcp:
 # read (someone else's public dataset), `warehouse.*` is data I own and
 # write. Never point these at the same dataset.
 warehouse:
-    gcs_bucket: "bucket name" # staging landing zone; see 3.3 in design_doc.md
+    gcs_bucket: "tech-stack-pipeline" # staging landing zone; see 3.3 in design_doc.md
     # gcs_bucket: " tech_stack_warehouse" # staging landing zone; see 3.3 in design_doc.md
     gcs_staging_prefix: "staging/tech-stack-pipeline"
     bq_dataset: "tech_stack_warehouse" # a dataset in the project, not httparchive's

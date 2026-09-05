@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-
 from dotenv import load_dotenv
-load_dotenv()
 
+# Populates os.environ from a .env file in the repo root (if present) before
+# anything below -- or any other module that does `from config import CFG`,
+# e.g. pipeline/llm_client.py -- reads GROQ_API_KEY / ANTHROPIC_API_KEY.
+# Safe to call even with no .env file: load_dotenv() is then a no-op.
+load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent
 
@@ -26,6 +28,14 @@ def _load() -> dict[str, Any]:
     # e.g. for CI or a teammate's own project.
     if os.environ.get("GCP_PROJECT_ID"):
         cfg["gcp"]["project_id"] = os.environ["GCP_PROJECT_ID"]
+
+    # Same override for the GCS staging bucket -- config.yaml's committed
+    # value is a scrubbed placeholder ("GCS bucket name"), never a real
+    # bucket. land_to_warehouse.py reads warehouse.gcs_bucket directly, so
+    # without this, --land would try to upload to a bucket that doesn't
+    # exist. Set GCS_BUCKET in .env locally or as a GitHub Actions secret.
+    if os.environ.get("GCS_BUCKET"):
+        cfg["warehouse"]["gcs_bucket"] = os.environ["GCS_BUCKET"]
 
     return cfg
 

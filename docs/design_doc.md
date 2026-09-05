@@ -593,6 +593,38 @@ directly in `tests/test_orchestrator_agent.py`
 (`test_proceed_to_load_refuses_when_no_snapshot_exists`,
 `test_proceed_to_load_refuses_when_snapshot_too_small`).
 
+**This guardrail fired for real, unprompted, during GitHub Actions testing --
+not just in the test suite.** `min_domain_count` in `config.yaml` has two
+values: `1000` (real production scale) and `min_domain_count_mock: 200`
+(deliberately small, for local `--mock` fixture runs). `check`'s extraction
+step treats `--limit-rows` the same way it treats `--mock` for validation
+purposes -- `use_small_thresholds = mock or bool(limit_rows)` -- so a
+manually-capped test run (`--limit-rows 500`, to keep a live GitHub Actions
+test cheap) is validated against the relaxed 200-domain floor and passes
+(358 domains cleared it). But `proceed_to_load()` -- the function `approve`
+calls -- deliberately does **not** inherit that leniency:
+`use_small_thresholds = mock` there, with no `limit_rows` parameter at all.
+Re-validating that same 358-domain snapshot against the real 1000-domain
+floor correctly failed it, and `approve` refused to load, exit code 2,
+before touching BigQuery:
+ 
+```
+"min_domain_count": { "passed": false, "detail": "358 domains (min 1000)" }
+REFUSED: validate_snapshot() did not return PASS when re-checked just now.
+```
+ 
+This is intentional, not a bug found and left unfixed: however much leeway
+a test run is given at `check` time to keep costs down, the moment
+something is about to become the new production snapshot, the real bar
+applies unconditionally -- the same "no shortcuts at the irreversible
+step" principle as everywhere else `proceed_to_load()` behaves. In normal
+operation this never triggers: a real monthly extraction with no
+`--limit-rows` cap produces well over 1000 domains after aggregation, the
+same way the deterministic v1 pipeline always has. It only fires when
+someone (in this case, me, deliberately) caps the extraction for a cheap
+test -- exactly the scenario it should catch.
+
+
 **Guardrails, restated as a single list, because this is the part that
 actually matters:** the agent cannot (1) load anything without a fresh
 `validate.py` PASS, (2) exceed the retry-count or days-past-expected

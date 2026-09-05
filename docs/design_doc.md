@@ -518,7 +518,9 @@ would be theater, not engineering.
 
 ## 6. v2: the agentic autopilot layer
 
-Section 5 ended by naming this exact gap as a strong v2 candidate, and now the pipeline needs to "run on autopilot mode, fully agentic driven instead of deterministic legacy way of running things."
+Section 5 ended by naming this exact gap as a strong v2 candidate, and now
+the pipeline needs to "run on autopilot mode, fully agentic driven instead
+of deterministic legacy way of running things."
 
 **First pass at this request was wrong, and worth naming.** My first
 instinct was to look for places inside the existing deterministic stages

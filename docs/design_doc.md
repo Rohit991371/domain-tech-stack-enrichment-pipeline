@@ -518,9 +518,8 @@ would be theater, not engineering.
 
 ## 6. v2: the agentic autopilot layer
 
-Section 5 ended by naming this exact gap as a strong v2 candidate, and it
-turned out to be the actual next request: after reviewing v1, Suresh asked
-for the pipeline to "run on autopilot mode, fully agentic driven instead
+Section 5 ended by naming this exact gap as a strong v2 candidate, and now
+the pipeline needs to "run on autopilot mode, fully agentic driven instead
 of deterministic legacy way of running things."
 
 **First pass at this request was wrong, and worth naming.** My first
@@ -581,8 +580,7 @@ The run stops in a `pending_approval` state, `orchestrator_agent.py`
 writes a plain-language summary of what passed, and a second GitHub
 Actions job -- gated behind a `production-approval` *environment* with a
 required reviewer -- is the only thing that can call
-`proceed_to_load()`. I added this checkpoint myself (it wasn't in Suresh's
-literal ask), and kept it after reviewing the design: writing a new
+`proceed_to_load()`. I added this checkpoint myself, and kept it after reviewing the design: writing a new
 snapshot over `tech_stack_snapshot_latest` is the one step in this whole
 pipeline that isn't cheaply reversible the way a re-run of an earlier
 stage is, so it gets a human at the moment of highest stakes, same

@@ -14,6 +14,29 @@ the join-key contract, and failure modes), `docs/findings.md` for the raw
 source investigation this was based on, and `docs/how_you_build.md` for the
 dev-process reflection.
 
+
+## Architecture
+
+### Control flow (V2 — agentic autopilot)
+```mermaid
+flowchart TD
+    A[GitHub Actions scheduler<br/>monthly cron trigger] --> B[Orchestrator agent<br/>retry loop + circuit breaker]
+    B --> C{Arrival + validation gates<br/>crawl exists? row counts sane?}
+    C -->|fail| D[Stop and alert<br/>prior snapshot untouched]
+    C -->|pass| E[HITL approval gate<br/>GitHub environment protection]
+    E --> F[(BigQuery production write<br/>idempotent MERGE)]
+```
+
+### Data flow
+```mermaid
+flowchart TD
+    G[(HTTP Archive source<br/>httparchive.crawl.pages, tens of TB)] --> H[Filtered extract<br/>production SQL, ~150-250GB scanned]
+    H --> I[Domain normalize<br/>origin → eTLD+1 via tldextract]
+    I --> J[Origin aggregate<br/>union technologies per domain]
+    J --> K[Snapshot + diff engine<br/>build snapshot, compare vs prior month]
+    K --> L[(Warehouse tables<br/>tech_stack_snapshot_latest,<br/>tech_stack_snapshot,<br/>tech_stack_change_events)]
+```
+
 ## 📊 Project Presentation
 [![Presentation Deck](https://img.shields.io/badge/Interactive_Slides-View_Presentation-6E3D1D?style=for-the-badge&logo=slides)](https://rohit991371.github.io/domain-tech-stack-enrichment-pipeline/domain_tech_stack_enrichment_pipeline.html)
 

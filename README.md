@@ -197,15 +197,18 @@ tech-stack-pipeline/
 │       ├── merge_snapshot_history.sql    # append-only, one row per (domain, crawl_date)
 │       └── merge_change_events.sql       # append-only event log
 ├── pipeline/
-│   ├── arrival_check.py       # timing trap: does the crawl actually exist yet?
-│   ├── extract.py             # cost trap: dry-run-gated BQ extraction (or --mock fixtures)
-│   ├── normalize_domain.py    # grain trap: PSL-aware origin -> registrable domain
-│   ├── build_snapshot.py      # aggregates origins -> one row per domain
-│   ├── validate.py            # the validation gate -- 6 checks, any failure stops the load
-│   ├── diff_snapshots.py      # month-over-month added/dropped -> change events
-│   ├── run_pipeline.py        # orchestrates all of the above, one command
-│   ├── land_to_warehouse.py   # separate step: validated snapshot -> GCS -> BigQuery MERGE
-│   └── mock_source.py         # synthetic fixture generator for local dev/testing
+│   ├── arrival_check.py           # timing trap: does the crawl actually exist yet?
+│   ├── extract.py                 # cost trap: dry-run-gated BQ extraction (or --mock fixtures)
+│   ├── normalize_domain.py        # grain trap: PSL-aware origin -> registrable domain
+│   ├── build_snapshot.py          # aggregates origins -> one row per domain
+│   ├── validate.py                # the validation gate -- 6 checks, any failure stops the load
+│   ├── diff_snapshots.py          # month-over-month added/dropped -> change events
+│   ├── run_pipeline.py            # orchestrates all of the above, one command
+│   ├── land_to_warehouse.py       # separate step: validated snapshot -> GCS -> BigQuery MERGE
+│   ├── llm_client.py              # wraps the LLM call; falls back to deterministic rules if no key / --no-llm
+│   ├── orchestrator_agent.py      # v2 autopilot: check/approve jobs, retry + circuit breaker
+│   ├── summarize_change_event.py  # v2: one-sentence grounded summary of a tech_change for the human reviewer
+│   └── mock_source.py             # synthetic fixture generator for local dev/testing
 ├── tests/                     # pytest, 32 tests: the three traps + warehouse-landing orchestration
 ├── data/                      
 ├── docs/
